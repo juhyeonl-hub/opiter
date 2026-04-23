@@ -261,6 +261,33 @@ def test_move_page_invalid_index_raises(tmp_path: Path) -> None:
             doc.move_page(0, -1)
 
 
+def test_reorder_pages_applies_permutation(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=4)
+    with Document.open(pdf) as doc:
+        doc.reorder_pages([3, 1, 2, 0])  # swap first and last
+        assert _page_text(doc, 0).startswith("Page 4")
+        assert _page_text(doc, 3).startswith("Page 1")
+        assert doc.is_modified is True
+
+
+def test_reorder_pages_identity_is_noop(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=3)
+    with Document.open(pdf) as doc:
+        doc.reorder_pages([0, 1, 2])
+        assert doc.is_modified is False
+
+
+def test_reorder_pages_rejects_non_permutation(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=3)
+    with Document.open(pdf) as doc:
+        with pytest.raises(ValueError):
+            doc.reorder_pages([0, 1, 1])  # duplicate
+        with pytest.raises(ValueError):
+            doc.reorder_pages([0, 1])  # wrong length
+        with pytest.raises(ValueError):
+            doc.reorder_pages([0, 1, 5])  # out-of-range value
+
+
 def test_move_page_persists_after_save(tmp_path: Path) -> None:
     pdf = _make_pdf(tmp_path / "a.pdf", pages=4)
     with Document.open(pdf) as doc:

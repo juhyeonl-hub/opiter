@@ -88,6 +88,24 @@ class Document:
         self._doc.delete_page(index)
         self._modified = True
 
+    def reorder_pages(self, new_order: list[int]) -> None:
+        """Apply *new_order* — a permutation of ``[0..page_count-1]``.
+
+        After the call, page at index ``i`` is whatever was at
+        ``new_order[i]`` before. Identity permutation is a no-op (does
+        not mark modified).
+        """
+        n = self.page_count
+        ordered = list(new_order)
+        if sorted(ordered) != list(range(n)):
+            raise ValueError(
+                f"new_order must be a permutation of [0..{n - 1}], got {ordered}"
+            )
+        if ordered == list(range(n)):
+            return
+        self._doc.select(ordered)
+        self._modified = True
+
     def move_page(self, from_index: int, to_index: int) -> None:
         """Move the page at *from_index* so it lands at *to_index*.
 

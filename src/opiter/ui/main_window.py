@@ -59,7 +59,7 @@ class MainWindow(QMainWindow):
 
         self._thumb_panel = ThumbnailPanel(self)
         self._thumb_panel.page_clicked.connect(self._viewer.goto_page)
-        self._thumb_panel.page_moved.connect(self._on_page_moved)
+        self._thumb_panel.pages_reordered.connect(self._on_pages_reordered)
         self._viewer.page_changed.connect(
             lambda current, _total: self._thumb_panel.select_page(current)
         )
@@ -372,34 +372,32 @@ class MainWindow(QMainWindow):
             4000,
         )
 
-    def _on_page_moved(self, from_index: int, to_index: int) -> None:
+    def _on_pages_reordered(self, new_order: list[int]) -> None:
+        """The thumbnail panel was just reordered visually by the user.
+        Apply the new order to the document and re-label items so each
+        item ↔ doc-page mapping is the identity again."""
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None:
             return
-        # Track which page the viewer was showing so we can follow it.
-        cur = self._viewer.current_page
-        if cur == from_index:
-            new_cur = to_index
-        elif from_index < cur <= to_index:
-            new_cur = cur - 1
-        elif to_index <= cur < from_index:
-            new_cur = cur + 1
-        else:
-            new_cur = cur
+        # The viewer was showing some page (by old index). Find where it
+        # sits in the new order so we can keep the user on the same
+        # logical page.
+        cur_old = self._viewer.current_page
+        try:
+            cur_new = new_order.index(cur_old)
+        except ValueError:
+            cur_new = 0
 
-        doc.move_page(from_index, to_index)
-        self._thumb_panel.set_document(doc)
-        # Force render even if new_cur == old current_page (page content
-        # at that index may have changed).
-        self._viewer._current_page = new_cur  # noqa: SLF001
+        doc.reorder_pages(new_order)
+        self._thumb_panel.relabel_after_reorder()
+
+        self._viewer._current_page = cur_new  # noqa: SLF001
         self._viewer.reload_current()
-        self._thumb_panel.select_page(new_cur)
+        self._thumb_panel.select_page(cur_new)
         self._reset_search_state()
         self._refresh_title()
         self._update_action_states()
-        self.statusBar().showMessage(
-            f"Moved page {from_index + 1} to position {to_index + 1}.", 4000
-        )
+        self.statusBar().showMessage("Page order updated.", 4000)
 
     def _on_insert_blank_page(self) -> None:
         doc = self._viewer._doc  # noqa: SLF001

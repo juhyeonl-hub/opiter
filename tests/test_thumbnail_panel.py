@@ -5,6 +5,7 @@ from pathlib import Path
 
 import fitz
 import pytest
+from PySide6.QtCore import Qt
 
 from opiter.core.document import Document
 from opiter.ui.thumbnail_panel import ThumbnailPanel
@@ -76,6 +77,26 @@ def test_drag_drop_mode_is_internal_move(qtbot):
     p = ThumbnailPanel()
     qtbot.addWidget(p)
     assert p.dragDropMode() == QAbstractItemView.DragDropMode.InternalMove
+
+
+def test_relabel_after_reorder_resets_text_and_userrole(qtbot, sample_pdf):
+    """After Qt has visually moved items, the parent calls relabel_after_reorder
+    so each item's UserRole maps to its current row index."""
+    p = ThumbnailPanel()
+    qtbot.addWidget(p)
+    p.set_document(Document.open(sample_pdf))
+
+    # Simulate user-shuffled UserRoles (as if Qt drag-drop happened)
+    p.item(0).setData(Qt.ItemDataRole.UserRole, 4)
+    p.item(0).setText("Page 5")
+    p.item(4).setData(Qt.ItemDataRole.UserRole, 0)
+    p.item(4).setText("Page 1")
+
+    p.relabel_after_reorder()
+
+    for i in range(p.count()):
+        assert p.item(i).data(Qt.ItemDataRole.UserRole) == i
+        assert p.item(i).text() == f"Page {i + 1}"
 
 
 def test_set_document_replaces_previous_contents(qtbot, sample_pdf, tmp_path):

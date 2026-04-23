@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QDropEvent, QIcon, QImage, QPixmap
+from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QListWidget,
@@ -22,8 +22,9 @@ class ThumbnailPanel(QListWidget):
     page_clicked = Signal(int)
     """0-based index of the page the user activated."""
 
-    page_moved = Signal(int, int)
-    """``(from_index, to_index)`` after a drag-drop reorder."""
+    pages_reordered = Signal(list)
+    """List of original page indices in their new visual order, after a
+    drag-drop. The handler should apply this to the document model."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -33,12 +34,14 @@ class ThumbnailPanel(QListWidget):
         self.itemClicked.connect(self._on_item_activated)
         self.itemActivated.connect(self._on_item_activated)
 
-        # Drag-drop reorder configuration. We override dropEvent to keep
-        # the model (Document) authoritative — Qt's default reorder would
-        # diverge from the document until we rebuild thumbnails anyway.
+        # Let Qt own the visual drag-drop (insert + remove). We listen to
+        # rowsMoved AFTER Qt has consistently moved the item, then sync
+        # to the document — this avoids the desync caused by mutating the
+        # list during dropEvent.
         self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.model().rowsMoved.connect(self._on_rows_moved)
 
     # ------------------------------------------------------------ public API
     def set_document(self, doc: Document) -> None:
@@ -59,6 +62,17 @@ class ThumbnailPanel(QListWidget):
             finally:
                 self.blockSignals(False)
 
+    def relabel_after_reorder(self) -> None:
+        """Reset each item's text and UserRole to match its new row index.
+
+        Call after the document has been re-selected so item ↔ doc-page
+        mapping becomes the identity again.
+        """
+        for i in range(self.count()):
+            item = self.item(i)
+            item.setText(f"Page {i + 1}")
+            item.setData(Qt.ItemDataRole.UserRole, i)
+
     # --------------------------------------------------------------- helpers
     @staticmethod
     def _render_thumbnail(doc: Document, page_index: int) -> QPixmap:
@@ -75,29 +89,13 @@ class ThumbnailPanel(QListWidget):
         if isinstance(idx, int):
             self.page_clicked.emit(idx)
 
-    # ------------------------------------------------------------ drag-drop
-    def dropEvent(self, event: QDropEvent) -> None:
-        """Translate the drop into a ``page_moved`` signal.
-
-        We do *not* call ``super().dropEvent`` because the parent will be
-        rebuilding the list from the (now-mutated) document immediately
-        afterwards. Letting Qt also reorder would briefly desynchronize
-        the visual list from the document.
-        """
-        src_items = self.selectedItems()
-        if not src_items:
-            event.ignore()
+    def _on_rows_moved(self, _parent, _start, _end, _dest_parent, _dest_row) -> None:
+        # Read the post-move order from each item's stored original index.
+        new_order = [
+            self.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.count())
+        ]
+        # Skip if Qt fired the signal but the order didn't actually change
+        # (defensive — shouldn't normally happen).
+        if new_order == sorted(new_order):
             return
-        from_index = self.row(src_items[0])
-
-        drop_pos = event.position().toPoint()
-        target_index = self.indexAt(drop_pos)
-        if target_index.isValid():
-            to_index = target_index.row()
-        else:
-            to_index = self.count() - 1
-
-        if from_index != to_index:
-            self.page_moved.emit(from_index, to_index)
-
-        event.accept()
+        self.pages_reordered.emit(new_order)
