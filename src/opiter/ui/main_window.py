@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QFileDialog,
     QInputDialog,
@@ -20,6 +21,7 @@ from opiter import __version__
 from opiter.core.document import Document
 from opiter.core.search import SearchMatch, search
 from opiter.ui.search_bar import SearchBar
+from opiter.ui.theme import apply_dark, apply_light
 from opiter.ui.thumbnail_panel import ThumbnailPanel
 from opiter.ui.viewer_widget import ViewerWidget
 from opiter.utils.errors import CorruptedPDFError, EncryptedPDFError
@@ -140,6 +142,11 @@ class MainWindow(QMainWindow):
         self._action_toggle_thumbs.setText("Show &Thumbnails")
         self._action_toggle_thumbs.setShortcut(QKeySequence(Qt.Key.Key_F4))
 
+        self._action_dark_mode = QAction("&Dark Mode", self)
+        self._action_dark_mode.setCheckable(True)
+        self._action_dark_mode.setShortcut(QKeySequence("Ctrl+Shift+D"))
+        self._action_dark_mode.toggled.connect(self._on_toggle_dark_mode)
+
         # Application-scope so the shortcuts fire even while focus is in the
         # SearchBar's QLineEdit child.
         self._action_find = QAction("&Find…", self)
@@ -188,6 +195,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._action_fit_width)
         view_menu.addSeparator()
         view_menu.addAction(self._action_toggle_thumbs)
+        view_menu.addAction(self._action_dark_mode)
 
         help_menu = menubar.addMenu("&Help")
         help_menu.addAction(self._action_about)
@@ -337,6 +345,15 @@ class MainWindow(QMainWindow):
     def _viewer_doc(self) -> Document:
         # Internal access — viewer always has a document at this point.
         return self._viewer._doc  # noqa: SLF001  (intentional for search hookup)
+
+    def _on_toggle_dark_mode(self, checked: bool) -> None:
+        app = QApplication.instance()
+        if app is None:
+            return
+        if checked:
+            apply_dark(app)
+        else:
+            apply_light(app)
 
     def _on_about(self) -> None:
         QMessageBox.about(
