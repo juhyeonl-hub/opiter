@@ -12,10 +12,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QVBoxLayout,
+    QWidget,
 )
 
 from opiter import __version__
 from opiter.core.document import Document
+from opiter.core.search import SearchMatch, search
+from opiter.ui.search_bar import SearchBar
 from opiter.ui.thumbnail_panel import ThumbnailPanel
 from opiter.ui.viewer_widget import ViewerWidget
 from opiter.utils.errors import CorruptedPDFError, EncryptedPDFError
@@ -30,9 +34,26 @@ class MainWindow(QMainWindow):
         self.resize(1024, 768)
 
         self._viewer = ViewerWidget(self)
-        self.setCentralWidget(self._viewer)
         self._viewer.page_changed.connect(self._on_page_changed)
         self._viewer.zoom_changed.connect(self._on_zoom_changed)
+
+        self._search_bar = SearchBar(self)
+        self._search_bar.hide()
+        self._search_bar.query_changed.connect(self._on_search_query_changed)
+        self._search_bar.next_requested.connect(self._on_search_next)
+        self._search_bar.prev_requested.connect(self._on_search_prev)
+        self._search_bar.close_requested.connect(self._on_search_close)
+
+        central = QWidget(self)
+        vbox = QVBoxLayout(central)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+        vbox.addWidget(self._viewer, stretch=1)
+        vbox.addWidget(self._search_bar)
+        self.setCentralWidget(central)
+
+        self._search_results: list[SearchMatch] = []
+        self._search_current: int = -1
 
         self._thumb_panel = ThumbnailPanel(self)
         self._thumb_panel.page_clicked.connect(self._viewer.goto_page)
@@ -119,6 +140,22 @@ class MainWindow(QMainWindow):
         self._action_toggle_thumbs.setText("Show &Thumbnails")
         self._action_toggle_thumbs.setShortcut(QKeySequence(Qt.Key.Key_F4))
 
+        self._action_find = QAction("&Find…", self)
+        self._action_find.setShortcut(QKeySequence.StandardKey.Find)
+        self._action_find.triggered.connect(self._on_find_open)
+
+        self._action_find_next = QAction("Find &Next", self)
+        self._action_find_next.setShortcuts(
+            [QKeySequence(Qt.Key.Key_F3), QKeySequence.StandardKey.FindNext]
+        )
+        self._action_find_next.triggered.connect(self._on_search_next)
+
+        self._action_find_prev = QAction("Find &Previous", self)
+        self._action_find_prev.setShortcuts(
+            [QKeySequence("Shift+F3"), QKeySequence.StandardKey.FindPrevious]
+        )
+        self._action_find_prev.triggered.connect(self._on_search_prev)
+
         self._action_about = QAction("&About Opiter", self)
         self._action_about.triggered.connect(self._on_about)
 
@@ -129,6 +166,11 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self._action_open)
         file_menu.addSeparator()
         file_menu.addAction(self._action_quit)
+
+        edit_menu = menubar.addMenu("&Edit")
+        edit_menu.addAction(self._action_find)
+        edit_menu.addAction(self._action_find_next)
+        edit_menu.addAction(self._action_find_prev)
 
         view_menu = menubar.addMenu("&View")
         view_menu.addAction(self._action_prev)
@@ -192,6 +234,7 @@ class MainWindow(QMainWindow):
         self._thumb_panel.set_document(doc)
         self._viewer.set_document(doc)
         self._thumb_panel.select_page(self._viewer.current_page)
+        self._reset_search_state()
         self.setWindowTitle(f"Opiter — {Path(path_str).name}")
         self.statusBar().showMessage(f"Loaded {doc.page_count} page(s)")
 
@@ -215,6 +258,78 @@ class MainWindow(QMainWindow):
         )
         if ok:
             self._viewer.goto_page(page - 1)
+
+    # ----------------------------------------------------------------- search
+    def _on_find_open(self) -> None:
+        if not self._viewer.has_document():
+            return
+        self._search_bar.focus_input()
+
+    def _on_search_close(self) -> None:
+        self._search_bar.hide()
+        self._reset_search_state()
+
+    def _on_search_query_changed(self, query: str) -> None:
+        if not self._viewer.has_document():
+            return
+        self._search_results = (
+            search(self._viewer_doc(), query) if query.strip() else []
+        )
+        if self._search_results:
+            self._search_current = 0
+            self._apply_search_highlights()
+            self._jump_to_current_match()
+        else:
+            self._search_current = -1
+            self._viewer.clear_search_highlights()
+        self._search_bar.set_status(self._search_current, len(self._search_results))
+
+    def _on_search_next(self) -> None:
+        if not self._search_results:
+            return
+        self._search_current = (self._search_current + 1) % len(self._search_results)
+        self._apply_search_highlights()
+        self._jump_to_current_match()
+        self._search_bar.set_status(self._search_current, len(self._search_results))
+
+    def _on_search_prev(self) -> None:
+        if not self._search_results:
+            return
+        self._search_current = (self._search_current - 1) % len(self._search_results)
+        self._apply_search_highlights()
+        self._jump_to_current_match()
+        self._search_bar.set_status(self._search_current, len(self._search_results))
+
+    def _reset_search_state(self) -> None:
+        self._search_results = []
+        self._search_current = -1
+        self._viewer.clear_search_highlights()
+        self._search_bar.set_status(-1, 0)
+
+    def _apply_search_highlights(self) -> None:
+        rects_by_page: dict[int, list[tuple[float, float, float, float]]] = {}
+        for m in self._search_results:
+            rects_by_page.setdefault(m.page_index, []).append(m.rect)
+        current = None
+        if 0 <= self._search_current < len(self._search_results):
+            cur_match = self._search_results[self._search_current]
+            within_page = sum(
+                1 for m in self._search_results[: self._search_current]
+                if m.page_index == cur_match.page_index
+            )
+            current = (cur_match.page_index, within_page)
+        self._viewer.set_search_highlights(rects_by_page, current=current)
+
+    def _jump_to_current_match(self) -> None:
+        if not (0 <= self._search_current < len(self._search_results)):
+            return
+        target_page = self._search_results[self._search_current].page_index
+        if target_page != self._viewer.current_page:
+            self._viewer.goto_page(target_page)
+
+    def _viewer_doc(self) -> Document:
+        # Internal access — viewer always has a document at this point.
+        return self._viewer._doc  # noqa: SLF001  (intentional for search hookup)
 
     def _on_about(self) -> None:
         QMessageBox.about(
@@ -241,5 +356,8 @@ class MainWindow(QMainWindow):
             self._action_fit_page,
             self._action_actual_size,
             self._action_fit_width,
+            self._action_find,
+            self._action_find_next,
+            self._action_find_prev,
         ):
             act.setEnabled(has_doc)

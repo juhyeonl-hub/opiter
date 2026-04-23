@@ -141,7 +141,7 @@ opiter/
 - [x] **Step 4-1**: 페이지 네비게이션 (Prev/Next/First/Last/GoTo + 단축키 + 인디케이터 + 휠 edge-trigger 페이지 전환)
 - [x] **Step 4-2**: 줌 컨트롤 (Zoom In/Out, fit-to-width, fit-to-page, 프리셋, Ctrl+휠)
 - [x] **Step 4-3**: 썸네일 사이드바 (좌측 도크, 클릭 점프, 양방향 동기화, F4 토글)
-- [ ] **Step 4-4**: 텍스트 검색 (Ctrl+F, 매칭 강조, F3 다음/이전)
+- [x] **Step 4-4**: 텍스트 검색 (Ctrl+F 검색바, F3/Shift+F3 다음/이전, 매치 카운터, 노란색 오버레이)
 - [ ] **Step 4-5**: 다크/라이트 모드 토글 (View 메뉴 + QSS)
 - [ ] **Step 5**: Phase 1 Self-Verification Report
 - [ ] **Step 6**: Phase 2 구현 (페이지 추가/삭제/순서/회전, 합치기/나누기/추출)

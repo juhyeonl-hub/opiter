@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QImage, QPixmap, QWheelEvent
+from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QLabel, QScrollArea, QWidget
 
 from opiter.core.document import Document
@@ -43,6 +43,8 @@ class ViewerWidget(QScrollArea):
         self._doc: Document | None = None
         self._current_page: int = 0
         self._zoom: float = 1.0
+        self._highlights_by_page: dict[int, list[tuple[float, float, float, float]]] = {}
+        self._current_highlight: tuple[int, int] | None = None  # (page_idx, match_idx)
 
     # -------------------------------------------------------------- accessors
     def has_document(self) -> bool:
@@ -142,6 +144,31 @@ class ViewerWidget(QScrollArea):
         if page_w > 0 and page_h > 0 and vw > 0 and vh > 0:
             self.set_zoom(min(vw / page_w, vh / page_h))
 
+    # ----------------------------------------------------------- search highlights
+    def set_search_highlights(
+        self,
+        rects_by_page: dict[int, list[tuple[float, float, float, float]]],
+        current: tuple[int, int] | None = None,
+    ) -> None:
+        """Replace highlight overlays.
+
+        ``rects_by_page`` maps page index → list of (x0, y0, x1, y1) in PDF points.
+        ``current`` is an optional ``(page_idx, match_idx_within_page)`` to render
+        with a stronger color.
+        """
+        self._highlights_by_page = dict(rects_by_page)
+        self._current_highlight = current
+        if self._doc is not None:
+            self._render_current(scroll_to="top")
+
+    def clear_search_highlights(self) -> None:
+        if not self._highlights_by_page and self._current_highlight is None:
+            return
+        self._highlights_by_page = {}
+        self._current_highlight = None
+        if self._doc is not None:
+            self._render_current(scroll_to="top")
+
     # ------------------------------------------------------------ wheel/events
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Ctrl+wheel → zoom. Plain wheel at page edges → advance/retreat page."""
@@ -183,10 +210,40 @@ class ViewerWidget(QScrollArea):
             return
         rendered = render_page(self._doc, self._current_page, zoom=self._zoom)
         image = _to_qimage(rendered)
-        self._page_label.setPixmap(QPixmap.fromImage(image))
+        pixmap = QPixmap.fromImage(image)
+        self._overlay_highlights(pixmap)
+        self._page_label.setPixmap(pixmap)
         self._page_label.adjustSize()
         sb = self.verticalScrollBar()
         sb.setValue(sb.maximum() if scroll_to == "bottom" else sb.minimum())
+
+    def _overlay_highlights(self, pixmap: QPixmap) -> None:
+        rects = self._highlights_by_page.get(self._current_page)
+        if not rects:
+            return
+        cur_idx = (
+            self._current_highlight[1]
+            if self._current_highlight and self._current_highlight[0] == self._current_page
+            else -1
+        )
+        painter = QPainter(pixmap)
+        try:
+            painter.setPen(Qt.PenStyle.NoPen)
+            for i, (x0, y0, x1, y1) in enumerate(rects):
+                color = (
+                    QColor(255, 140, 0, 140) if i == cur_idx else QColor(255, 240, 0, 110)
+                )
+                painter.setBrush(color)
+                painter.drawRect(
+                    QRectF(
+                        x0 * self._zoom,
+                        y0 * self._zoom,
+                        (x1 - x0) * self._zoom,
+                        (y1 - y0) * self._zoom,
+                    )
+                )
+        finally:
+            painter.end()
 
 
 def _to_qimage(rp: RenderedPage) -> QImage:
