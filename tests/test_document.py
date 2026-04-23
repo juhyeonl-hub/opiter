@@ -142,3 +142,27 @@ def test_save_as_writes_new_file_and_updates_path(tmp_path: Path) -> None:
     assert new_path.exists()
     with Document.open(new_path) as reopened:
         assert reopened.page_rotation(0) == 180
+
+
+def test_save_after_save_as_does_not_raise(tmp_path: Path) -> None:
+    """Regression: PyMuPDF's incremental save requires the document's
+    internal source path to match the target path. After save_as, the
+    fitz.Document must be reopened from the new path so subsequent
+    Ctrl+S (incremental) works."""
+    pdf = _make_pdf(tmp_path / "a.pdf")
+    with Document.open(pdf) as doc:
+        doc.rotate_page(0, 90)
+        new_path = tmp_path / "b.pdf"
+        doc.save_as(new_path)
+
+        # Further edits after save_as...
+        doc.rotate_page(0, 90)
+        assert doc.is_modified
+
+        # ...and an incremental save to the new path must succeed.
+        doc.save()
+        assert not doc.is_modified
+
+    # And the final state must be on disk.
+    with Document.open(new_path) as reopened:
+        assert reopened.page_rotation(0) == 180

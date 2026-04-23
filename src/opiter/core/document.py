@@ -88,9 +88,17 @@ class Document:
         self._modified = False
 
     def save_as(self, new_path: str | Path) -> None:
-        """Save a full copy to *new_path* and point the document at it."""
+        """Save a full copy to *new_path* and point the document at it.
+
+        The underlying ``fitz.Document`` is reopened from *new_path* so that
+        subsequent ``save()`` (incremental) calls target the new file —
+        otherwise PyMuPDF raises "incremental needs original file" because
+        its internal source path is still the original open path.
+        """
         new_path = Path(new_path)
         self._doc.save(str(new_path))
+        self._doc.close()
+        self._doc = fitz.open(new_path)
         self.path = new_path
         self._modified = False
 
