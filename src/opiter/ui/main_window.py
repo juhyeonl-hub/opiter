@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
 
         self._thumb_panel = ThumbnailPanel(self)
         self._thumb_panel.page_clicked.connect(self._viewer.goto_page)
+        self._thumb_panel.page_moved.connect(self._on_page_moved)
         self._viewer.page_changed.connect(
             lambda current, _total: self._thumb_panel.select_page(current)
         )
@@ -369,6 +370,35 @@ class MainWindow(QMainWindow):
             f"Deleted page {idx + 1}. Now showing page "
             f"{self._viewer.current_page + 1} of {doc.page_count}.",
             4000,
+        )
+
+    def _on_page_moved(self, from_index: int, to_index: int) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        # Track which page the viewer was showing so we can follow it.
+        cur = self._viewer.current_page
+        if cur == from_index:
+            new_cur = to_index
+        elif from_index < cur <= to_index:
+            new_cur = cur - 1
+        elif to_index <= cur < from_index:
+            new_cur = cur + 1
+        else:
+            new_cur = cur
+
+        doc.move_page(from_index, to_index)
+        self._thumb_panel.set_document(doc)
+        # Force render even if new_cur == old current_page (page content
+        # at that index may have changed).
+        self._viewer._current_page = new_cur  # noqa: SLF001
+        self._viewer.reload_current()
+        self._thumb_panel.select_page(new_cur)
+        self._reset_search_state()
+        self._refresh_title()
+        self._update_action_states()
+        self.statusBar().showMessage(
+            f"Moved page {from_index + 1} to position {to_index + 1}.", 4000
         )
 
     def _on_insert_blank_page(self) -> None:

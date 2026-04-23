@@ -217,6 +217,60 @@ def test_insert_blank_page_invalid_index_raises(tmp_path: Path) -> None:
             doc.insert_blank_page(after_index=99)
 
 
+def _page_text(doc: Document, idx: int) -> str:
+    """Read the first text on a page — used to verify page identity after move."""
+    return doc.page(idx).get_text("text").strip()
+
+
+def test_move_page_forward(tmp_path: Path) -> None:
+    """[A,B,C,D,E] move(1, 3) → [A,C,D,B,E]."""
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=5)
+    with Document.open(pdf) as doc:
+        doc.move_page(1, 3)
+        assert _page_text(doc, 0).startswith("Page 1")
+        assert _page_text(doc, 1).startswith("Page 3")
+        assert _page_text(doc, 2).startswith("Page 4")
+        assert _page_text(doc, 3).startswith("Page 2")
+        assert _page_text(doc, 4).startswith("Page 5")
+        assert doc.is_modified is True
+
+
+def test_move_page_backward(tmp_path: Path) -> None:
+    """[A,B,C,D,E] move(4, 0) → [E,A,B,C,D]."""
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=5)
+    with Document.open(pdf) as doc:
+        doc.move_page(4, 0)
+        assert _page_text(doc, 0).startswith("Page 5")
+        assert _page_text(doc, 1).startswith("Page 1")
+        assert _page_text(doc, 4).startswith("Page 4")
+
+
+def test_move_page_same_index_is_noop(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=3)
+    with Document.open(pdf) as doc:
+        doc.move_page(1, 1)
+        assert doc.is_modified is False
+
+
+def test_move_page_invalid_index_raises(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=3)
+    with Document.open(pdf) as doc:
+        with pytest.raises(IndexError):
+            doc.move_page(5, 0)
+        with pytest.raises(IndexError):
+            doc.move_page(0, -1)
+
+
+def test_move_page_persists_after_save(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=4)
+    with Document.open(pdf) as doc:
+        doc.move_page(0, 3)  # [A,B,C,D] → [B,C,D,A]
+        doc.save()
+    with Document.open(pdf) as reopened:
+        assert _page_text(reopened, 0).startswith("Page 2")
+        assert _page_text(reopened, 3).startswith("Page 1")
+
+
 def test_save_after_save_as_does_not_raise(tmp_path: Path) -> None:
     """Regression: PyMuPDF's incremental save requires the document's
     internal source path to match the target path. After save_as, the

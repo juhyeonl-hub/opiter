@@ -70,6 +70,14 @@ def test_select_page_does_not_emit_page_clicked(qtbot, sample_pdf):
         p.select_page(2)
 
 
+def test_drag_drop_mode_is_internal_move(qtbot):
+    """Reorder by drag is enabled."""
+    from PySide6.QtWidgets import QAbstractItemView
+    p = ThumbnailPanel()
+    qtbot.addWidget(p)
+    assert p.dragDropMode() == QAbstractItemView.DragDropMode.InternalMove
+
+
 def test_set_document_replaces_previous_contents(qtbot, sample_pdf, tmp_path):
     p = ThumbnailPanel()
     qtbot.addWidget(p)

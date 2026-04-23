@@ -88,6 +88,30 @@ class Document:
         self._doc.delete_page(index)
         self._modified = True
 
+    def move_page(self, from_index: int, to_index: int) -> None:
+        """Move the page at *from_index* so it lands at *to_index*.
+
+        Implemented via ``fitz.Document.select(order)`` for clear semantics
+        (PyMuPDF's native ``move_page`` has subtle pno/to interactions).
+        Same-index move is a no-op and does not mark the document modified.
+        """
+        n = self.page_count
+        if not 0 <= from_index < n:
+            raise IndexError(
+                f"from_index {from_index} out of range (0..{n - 1})"
+            )
+        if not 0 <= to_index < n:
+            raise IndexError(
+                f"to_index {to_index} out of range (0..{n - 1})"
+            )
+        if from_index == to_index:
+            return
+        order = list(range(n))
+        page = order.pop(from_index)
+        order.insert(to_index, page)
+        self._doc.select(order)
+        self._modified = True
+
     def insert_blank_page(
         self,
         after_index: int,

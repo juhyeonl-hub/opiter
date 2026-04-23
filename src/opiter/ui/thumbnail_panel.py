@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QImage, QPixmap
-from PySide6.QtWidgets import QListWidget, QListWidgetItem, QWidget
+from PySide6.QtGui import QDropEvent, QIcon, QImage, QPixmap
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QListWidget,
+    QListWidgetItem,
+    QWidget,
+)
 
 from opiter.core.document import Document
 from opiter.core.renderer import render_page
@@ -12,19 +17,28 @@ THUMB_WIDTH_PX = 140
 
 
 class ThumbnailPanel(QListWidget):
-    """Vertical list of rendered page thumbnails. Click to jump to a page."""
+    """Vertical list of rendered page thumbnails. Click to jump, drag to reorder."""
 
     page_clicked = Signal(int)
     """0-based index of the page the user activated."""
 
+    page_moved = Signal(int, int)
+    """``(from_index, to_index)`` after a drag-drop reorder."""
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        # Maximum expected portrait aspect (~A4) sets the icon row height.
         self.setIconSize(QSize(THUMB_WIDTH_PX, int(THUMB_WIDTH_PX * 1.5)))
         self.setSpacing(6)
         self.setUniformItemSizes(False)
         self.itemClicked.connect(self._on_item_activated)
         self.itemActivated.connect(self._on_item_activated)
+
+        # Drag-drop reorder configuration. We override dropEvent to keep
+        # the model (Document) authoritative — Qt's default reorder would
+        # diverge from the document until we rebuild thumbnails anyway.
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
 
     # ------------------------------------------------------------ public API
     def set_document(self, doc: Document) -> None:
@@ -60,3 +74,30 @@ class ThumbnailPanel(QListWidget):
         idx = item.data(Qt.ItemDataRole.UserRole)
         if isinstance(idx, int):
             self.page_clicked.emit(idx)
+
+    # ------------------------------------------------------------ drag-drop
+    def dropEvent(self, event: QDropEvent) -> None:
+        """Translate the drop into a ``page_moved`` signal.
+
+        We do *not* call ``super().dropEvent`` because the parent will be
+        rebuilding the list from the (now-mutated) document immediately
+        afterwards. Letting Qt also reorder would briefly desynchronize
+        the visual list from the document.
+        """
+        src_items = self.selectedItems()
+        if not src_items:
+            event.ignore()
+            return
+        from_index = self.row(src_items[0])
+
+        drop_pos = event.position().toPoint()
+        target_index = self.indexAt(drop_pos)
+        if target_index.isValid():
+            to_index = target_index.row()
+        else:
+            to_index = self.count() - 1
+
+        if from_index != to_index:
+            self.page_moved.emit(from_index, to_index)
+
+        event.accept()
