@@ -143,7 +143,7 @@ opiter/
 - [x] **Step 4-3**: 썸네일 사이드바 (좌측 도크, 클릭 점프, 양방향 동기화, F4 토글)
 - [x] **Step 4-4**: 텍스트 검색 (Ctrl+F 검색바, F3/Shift+F3 다음/이전, 매치 카운터, 노란색 오버레이)
 - [x] **Step 4-5**: 다크/라이트 모드 토글 (View 메뉴 + QPalette + QSS, Ctrl+Shift+D)
-- [ ] **Step 5**: Phase 1 Self-Verification Report
+- [x] **Step 5**: Phase 1 Self-Verification Report ([docs/phase1_self_verification.md](docs/phase1_self_verification.md))
 - [ ] **Step 6**: Phase 2 구현 (페이지 추가/삭제/순서/회전, 합치기/나누기/추출)
 - [ ] **Step 7**: Phase 2 Self-Verification Report
 - [ ] **Step 8**: Phase 3 구현 (하이라이트/밑줄/취소선, 스티키 노트, 자유 그리기, 도형, 텍스트 박스)
