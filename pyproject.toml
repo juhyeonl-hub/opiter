@@ -1,0 +1,40 @@
+[project]
+name = "opiter"
+version = "0.1.0"
+description = "Free, open-source PDF editor — view, manipulate, and annotate PDFs locally with no ads, subscriptions, or cloud uploads."
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "juhyeonl", email = "xx.juon@gmail.com" }
+]
+keywords = ["pdf", "editor", "viewer", "annotation", "open-source", "qt", "pyside6"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Office/Business",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pdfplumber>=0.11.9",
+    "pymupdf>=1.27.2.2",
+    "pypdf>=6.10.2",
+    "pyside6>=6.11.0",
+]
+
+[project.scripts]
+opiter = "opiter:main"
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-qt>=4.5.0",
+]
