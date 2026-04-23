@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -57,6 +57,12 @@ class SearchBar(QWidget):
         close_btn.clicked.connect(self.close_requested.emit)
         layout.addWidget(close_btn)
 
+        # Esc must work even when the QLineEdit child has focus.
+        # WidgetWithChildrenShortcut covers focus on either the bar or the line edit.
+        self._esc_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self._esc_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._esc_shortcut.activated.connect(self.close_requested.emit)
+
     # --------------------------------------------------------------- public
     def focus_input(self) -> None:
         """Show, focus, and select-all the input field."""
@@ -73,11 +79,3 @@ class SearchBar(QWidget):
             self._counter.setText("Not found" if self._input.text().strip() else "")
         else:
             self._counter.setText(f"{current_index + 1} of {total}")
-
-    # ---------------------------------------------------------------- input
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() == Qt.Key.Key_Escape:
-            self.close_requested.emit()
-            event.accept()
-            return
-        super().keyPressEvent(event)

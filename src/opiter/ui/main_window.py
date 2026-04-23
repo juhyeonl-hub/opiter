@@ -140,20 +140,21 @@ class MainWindow(QMainWindow):
         self._action_toggle_thumbs.setText("Show &Thumbnails")
         self._action_toggle_thumbs.setShortcut(QKeySequence(Qt.Key.Key_F4))
 
+        # Application-scope so the shortcuts fire even while focus is in the
+        # SearchBar's QLineEdit child.
         self._action_find = QAction("&Find…", self)
         self._action_find.setShortcut(QKeySequence.StandardKey.Find)
+        self._action_find.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self._action_find.triggered.connect(self._on_find_open)
 
         self._action_find_next = QAction("Find &Next", self)
-        self._action_find_next.setShortcuts(
-            [QKeySequence(Qt.Key.Key_F3), QKeySequence.StandardKey.FindNext]
-        )
+        self._action_find_next.setShortcut(QKeySequence(Qt.Key.Key_F3))
+        self._action_find_next.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self._action_find_next.triggered.connect(self._on_search_next)
 
         self._action_find_prev = QAction("Find &Previous", self)
-        self._action_find_prev.setShortcuts(
-            [QKeySequence("Shift+F3"), QKeySequence.StandardKey.FindPrevious]
-        )
+        self._action_find_prev.setShortcut(QKeySequence("Shift+F3"))
+        self._action_find_prev.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self._action_find_prev.triggered.connect(self._on_search_prev)
 
         self._action_about = QAction("&About Opiter", self)
@@ -264,6 +265,12 @@ class MainWindow(QMainWindow):
         if not self._viewer.has_document():
             return
         self._search_bar.focus_input()
+        # If the input retains a query from a previous session, re-run the
+        # search so highlights and Prev/Next/Enter work without forcing the
+        # user to retype.
+        existing = self._search_bar.query()
+        if existing.strip() and not self._search_results:
+            self._on_search_query_changed(existing)
 
     def _on_search_close(self) -> None:
         self._search_bar.hide()
