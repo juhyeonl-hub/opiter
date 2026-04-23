@@ -19,6 +19,13 @@ from PySide6.QtWidgets import (
 
 from opiter import __version__
 from opiter.core.document import Document
+from opiter.core.page_ops import (
+    extract_pages,
+    parse_multi_range_spec,
+    parse_page_range_spec,
+    split_by_groups,
+    split_per_page,
+)
 from opiter.core.search import SearchMatch, search
 from opiter.ui.search_bar import SearchBar
 from opiter.ui.theme import apply_dark, apply_light
@@ -119,6 +126,15 @@ class MainWindow(QMainWindow):
         self._action_insert_blank = QAction("&Insert Blank Page After", self)
         self._action_insert_blank.triggered.connect(self._on_insert_blank_page)
 
+        self._action_extract = QAction("E&xtract Pages…", self)
+        self._action_extract.triggered.connect(self._on_extract_pages)
+
+        self._action_split_ranges = QAction("Split PDF by &Range…", self)
+        self._action_split_ranges.triggered.connect(self._on_split_by_ranges)
+
+        self._action_split_per_page = QAction("Split PDF Per &Page", self)
+        self._action_split_per_page.triggered.connect(self._on_split_per_page)
+
         self._action_prev = QAction("&Previous Page", self)
         self._action_prev.setShortcut(QKeySequence(Qt.Key.Key_PageUp))
         self._action_prev.triggered.connect(self._viewer.prev_page)
@@ -212,6 +228,10 @@ class MainWindow(QMainWindow):
         edit_menu.addSeparator()
         edit_menu.addAction(self._action_insert_blank)
         edit_menu.addAction(self._action_delete_page)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self._action_extract)
+        edit_menu.addAction(self._action_split_ranges)
+        edit_menu.addAction(self._action_split_per_page)
 
         view_menu = menubar.addMenu("&View")
         view_menu.addAction(self._action_prev)
@@ -399,6 +419,96 @@ class MainWindow(QMainWindow):
         self._update_action_states()
         self.statusBar().showMessage("Page order updated.", 4000)
 
+    def _on_extract_pages(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        spec, ok = QInputDialog.getText(
+            self,
+            "Extract Pages",
+            f"Pages to extract (1 – {doc.page_count}, e.g. 1-3,5,7-9):",
+        )
+        if not ok or not spec.strip():
+            return
+        try:
+            indices = parse_page_range_spec(spec, doc.page_count)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid Page Range", str(exc))
+            return
+        default_name = f"{doc.path.stem}_extract.pdf"
+        out_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Extracted Pages",
+            str(doc.path.parent / default_name),
+            "PDF files (*.pdf);;All files (*)",
+        )
+        if not out_str:
+            return
+        try:
+            out = extract_pages(doc, indices, out_str)
+        except Exception as exc:
+            QMessageBox.critical(self, "Extract Failed", str(exc))
+            return
+        self.statusBar().showMessage(
+            f"Extracted {len(indices)} page(s) to {out}", 5000
+        )
+
+    def _on_split_by_ranges(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        spec, ok = QInputDialog.getText(
+            self,
+            "Split PDF by Range",
+            f"Page groups (use ; between groups, e.g. 1-3;4-7;8-{doc.page_count}):",
+        )
+        if not ok or not spec.strip():
+            return
+        try:
+            groups = parse_multi_range_spec(spec, doc.page_count)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid Page Range", str(exc))
+            return
+        out_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Choose Output Directory",
+            str(doc.path.parent),
+        )
+        if not out_dir:
+            return
+        try:
+            written = split_by_groups(doc, groups, out_dir, doc.path.stem)
+        except Exception as exc:
+            QMessageBox.critical(self, "Split Failed", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Split Complete",
+            f"Wrote {len(written)} file(s) to:\n{out_dir}",
+        )
+
+    def _on_split_per_page(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        out_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Choose Output Directory",
+            str(doc.path.parent),
+        )
+        if not out_dir:
+            return
+        try:
+            written = split_per_page(doc, out_dir, doc.path.stem)
+        except Exception as exc:
+            QMessageBox.critical(self, "Split Failed", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Split Complete",
+            f"Wrote {len(written)} file(s) (one per page) to:\n{out_dir}",
+        )
+
     def _on_insert_blank_page(self) -> None:
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None:
@@ -555,6 +665,9 @@ class MainWindow(QMainWindow):
             self._action_rotate_right,
             self._action_rotate_left,
             self._action_insert_blank,
+            self._action_extract,
+            self._action_split_ranges,
+            self._action_split_per_page,
         ):
             act.setEnabled(has_doc)
         doc = self._viewer._doc  # noqa: SLF001
