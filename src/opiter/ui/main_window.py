@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QDockWidget,
     QFileDialog,
     QInputDialog,
     QLabel,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from opiter import __version__
 from opiter.core.document import Document
+from opiter.ui.thumbnail_panel import ThumbnailPanel
 from opiter.ui.viewer_widget import ViewerWidget
 from opiter.utils.errors import CorruptedPDFError, EncryptedPDFError
 
@@ -31,6 +33,20 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._viewer)
         self._viewer.page_changed.connect(self._on_page_changed)
         self._viewer.zoom_changed.connect(self._on_zoom_changed)
+
+        self._thumb_panel = ThumbnailPanel(self)
+        self._thumb_panel.page_clicked.connect(self._viewer.goto_page)
+        self._viewer.page_changed.connect(
+            lambda current, _total: self._thumb_panel.select_page(current)
+        )
+
+        self._thumb_dock = QDockWidget("Pages", self)
+        self._thumb_dock.setObjectName("ThumbnailsDock")
+        self._thumb_dock.setWidget(self._thumb_panel)
+        self._thumb_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._thumb_dock)
 
         self._page_indicator = QLabel("—")
         self._page_indicator.setMinimumWidth(80)
@@ -99,6 +115,10 @@ class MainWindow(QMainWindow):
         self._action_fit_width.setShortcut(QKeySequence("Ctrl+2"))
         self._action_fit_width.triggered.connect(self._viewer.fit_width)
 
+        self._action_toggle_thumbs = self._thumb_dock.toggleViewAction()
+        self._action_toggle_thumbs.setText("Show &Thumbnails")
+        self._action_toggle_thumbs.setShortcut(QKeySequence(Qt.Key.Key_F4))
+
         self._action_about = QAction("&About Opiter", self)
         self._action_about.triggered.connect(self._on_about)
 
@@ -123,6 +143,8 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._action_fit_page)
         view_menu.addAction(self._action_actual_size)
         view_menu.addAction(self._action_fit_width)
+        view_menu.addSeparator()
+        view_menu.addAction(self._action_toggle_thumbs)
 
         help_menu = menubar.addMenu("&Help")
         help_menu.addAction(self._action_about)
@@ -167,7 +189,9 @@ class MainWindow(QMainWindow):
             )
             return
 
+        self._thumb_panel.set_document(doc)
         self._viewer.set_document(doc)
+        self._thumb_panel.select_page(self._viewer.current_page)
         self.setWindowTitle(f"Opiter — {Path(path_str).name}")
         self.statusBar().showMessage(f"Loaded {doc.page_count} page(s)")
 
