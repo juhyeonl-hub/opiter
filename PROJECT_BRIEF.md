@@ -138,7 +138,11 @@ opiter/
 - [x] **Step 1**: 프로젝트 초기 셋업 (디렉터리, `pyproject.toml`, `.gitignore`, 의존성 설치)
 - [x] **Step 2**: 핵심 문서 작성 (`README.md`, `PROJECT.md`, `FEATURES.md`, `ARCHITECTURE.md`, `LICENSE`, `CONTRIBUTING.md`)
 - [x] **Step 3**: 기본 애플리케이션 프레임 (메인 윈도우, 메뉴/툴바, PDF 열기 다이얼로그, 첫 페이지 렌더링)
-- [ ] **Step 4**: Phase 1 완성 (페이지 네비, 줌, 썸네일, 검색, 다크모드)
+- [x] **Step 4-1**: 페이지 네비게이션 (Prev/Next/First/Last/GoTo + 단축키 + 인디케이터)
+- [ ] **Step 4-2**: 줌 컨트롤 (Zoom In/Out, fit-to-width, fit-to-page, 프리셋)
+- [ ] **Step 4-3**: 썸네일 사이드바 (좌측 도크, 클릭 점프)
+- [ ] **Step 4-4**: 텍스트 검색 (Ctrl+F, 매칭 강조, F3 다음/이전)
+- [ ] **Step 4-5**: 다크/라이트 모드 토글 (View 메뉴 + QSS)
 - [ ] **Step 5**: Phase 1 Self-Verification Report
 - [ ] **Step 6**: Phase 2 구현 (페이지 추가/삭제/순서/회전, 합치기/나누기/추출)
 - [ ] **Step 7**: Phase 2 Self-Verification Report
