@@ -91,9 +91,25 @@ class MainWindow(QMainWindow):
         self._action_open.setShortcut(QKeySequence.StandardKey.Open)
         self._action_open.triggered.connect(self._on_open)
 
+        self._action_save = QAction("&Save", self)
+        self._action_save.setShortcut(QKeySequence.StandardKey.Save)
+        self._action_save.triggered.connect(self._on_save)
+
+        self._action_save_as = QAction("Save &As…", self)
+        self._action_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
+        self._action_save_as.triggered.connect(self._on_save_as)
+
         self._action_quit = QAction("&Quit", self)
         self._action_quit.setShortcut(QKeySequence.StandardKey.Quit)
         self._action_quit.triggered.connect(self.close)
+
+        self._action_rotate_right = QAction("Rotate Page &Right", self)
+        self._action_rotate_right.setShortcut(QKeySequence("Ctrl+R"))
+        self._action_rotate_right.triggered.connect(self._on_rotate_right)
+
+        self._action_rotate_left = QAction("Rotate Page &Left", self)
+        self._action_rotate_left.setShortcut(QKeySequence("Ctrl+Shift+R"))
+        self._action_rotate_left.triggered.connect(self._on_rotate_left)
 
         self._action_prev = QAction("&Previous Page", self)
         self._action_prev.setShortcut(QKeySequence(Qt.Key.Key_PageUp))
@@ -173,12 +189,18 @@ class MainWindow(QMainWindow):
         file_menu = menubar.addMenu("&File")
         file_menu.addAction(self._action_open)
         file_menu.addSeparator()
+        file_menu.addAction(self._action_save)
+        file_menu.addAction(self._action_save_as)
+        file_menu.addSeparator()
         file_menu.addAction(self._action_quit)
 
         edit_menu = menubar.addMenu("&Edit")
         edit_menu.addAction(self._action_find)
         edit_menu.addAction(self._action_find_next)
         edit_menu.addAction(self._action_find_prev)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self._action_rotate_right)
+        edit_menu.addAction(self._action_rotate_left)
 
         view_menu = menubar.addMenu("&View")
         view_menu.addAction(self._action_prev)
@@ -215,6 +237,8 @@ class MainWindow(QMainWindow):
 
     # ----------------------------------------------------------------- slots
     def _on_open(self) -> None:
+        if not self._confirm_discard_if_modified():
+            return
         path_str, _ = QFileDialog.getOpenFileName(
             self,
             "Open PDF",
@@ -244,8 +268,64 @@ class MainWindow(QMainWindow):
         self._viewer.set_document(doc)
         self._thumb_panel.select_page(self._viewer.current_page)
         self._reset_search_state()
-        self.setWindowTitle(f"Opiter — {Path(path_str).name}")
+        self._refresh_title()
+        self._update_action_states()
         self.statusBar().showMessage(f"Loaded {doc.page_count} page(s)")
+
+    def _on_save(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        try:
+            doc.save()
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Failed", str(exc))
+            return
+        self._refresh_title()
+        self.statusBar().showMessage(f"Saved to {doc.path}", 3000)
+
+    def _on_save_as(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save PDF As",
+            str(doc.path),
+            "PDF files (*.pdf);;All files (*)",
+        )
+        if not path_str:
+            return
+        try:
+            doc.save_as(path_str)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Failed", str(exc))
+            return
+        # Thumbnails stay valid (same doc instance, same content); rebuild
+        # so saved file's rotation etc. are reflected if user re-renders.
+        self._thumb_panel.set_document(doc)
+        self._thumb_panel.select_page(self._viewer.current_page)
+        self._refresh_title()
+        self.statusBar().showMessage(f"Saved to {doc.path}", 3000)
+
+    def _on_rotate_right(self) -> None:
+        self._rotate_current_page(90)
+
+    def _on_rotate_left(self) -> None:
+        self._rotate_current_page(-90)
+
+    def _rotate_current_page(self, degrees: int) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        idx = self._viewer.current_page
+        doc.rotate_page(idx, degrees)
+        # Re-render current page and refresh its thumbnail
+        self._viewer._render_current(scroll_to="top")  # noqa: SLF001
+        self._thumb_panel.set_document(doc)
+        self._thumb_panel.select_page(idx)
+        self._refresh_title()
+        self._update_action_states()
 
     def _on_page_changed(self, current: int, total: int) -> None:
         self._page_indicator.setText(f"{current + 1} / {total}" if total > 0 else "—")
@@ -383,5 +463,47 @@ class MainWindow(QMainWindow):
             self._action_find,
             self._action_find_next,
             self._action_find_prev,
+            self._action_save_as,
+            self._action_rotate_right,
+            self._action_rotate_left,
         ):
             act.setEnabled(has_doc)
+        doc = self._viewer._doc  # noqa: SLF001
+        self._action_save.setEnabled(has_doc and doc is not None and doc.is_modified)
+
+    # -------------------------------------------------------------- helpers
+    def _refresh_title(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            self.setWindowTitle("Opiter")
+            return
+        marker = " *" if doc.is_modified else ""
+        self.setWindowTitle(f"Opiter — {doc.path.name}{marker}")
+        self._update_action_states()
+
+    def _confirm_discard_if_modified(self) -> bool:
+        """Prompt before discarding unsaved changes. Return True to proceed."""
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None or not doc.is_modified:
+            return True
+        button = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            f"{doc.path.name} has unsaved changes. Save before continuing?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if button == QMessageBox.StandardButton.Save:
+            self._on_save()
+            return not doc.is_modified
+        if button == QMessageBox.StandardButton.Discard:
+            return True
+        return False
+
+    def closeEvent(self, event) -> None:  # noqa: N802  (Qt override)
+        if self._confirm_discard_if_modified():
+            event.accept()
+        else:
+            event.ignore()

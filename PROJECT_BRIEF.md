@@ -144,7 +144,12 @@ opiter/
 - [x] **Step 4-4**: 텍스트 검색 (Ctrl+F 검색바, F3/Shift+F3 다음/이전, 매치 카운터, 노란색 오버레이)
 - [x] **Step 4-5**: 다크/라이트 모드 토글 (View 메뉴 + QPalette + QSS, Ctrl+Shift+D)
 - [x] **Step 5**: Phase 1 Self-Verification Report ([docs/phase1_self_verification.md](docs/phase1_self_verification.md))
-- [ ] **Step 6**: Phase 2 구현 (페이지 추가/삭제/순서/회전, 합치기/나누기/추출)
+- [x] **Step 6-1**: Save / Save As 인프라 + 페이지 회전 (90° 누적, modified 마커, 저장 확인)
+- [ ] **Step 6-2**: 페이지 삭제 + 빈 페이지 추가
+- [ ] **Step 6-3**: 페이지 순서 변경 (썸네일 드래그-앤-드롭)
+- [ ] **Step 6-4**: PDF 추출 + 나누기 (범위 다이얼로그, 새 파일 출력)
+- [ ] **Step 6-5**: PDF 합치기 (다중 파일 선택, 순서 지정)
+- [ ] (Undo/Redo는 폴리싱 단계로 deferral — ARCHITECTURE.md의 QUndoStack 도입은 Phase 2~3 완료 후 일괄)
 - [ ] **Step 7**: Phase 2 Self-Verification Report
 - [ ] **Step 8**: Phase 3 구현 (하이라이트/밑줄/취소선, 스티키 노트, 자유 그리기, 도형, 텍스트 박스)
 - [ ] **Step 9**: Phase 3 Self-Verification Report

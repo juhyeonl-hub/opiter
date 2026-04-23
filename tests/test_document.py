@@ -61,3 +61,84 @@ def test_page_size_returns_width_and_height(tmp_path: Path) -> None:
         w, h = d.page_size(0)
         assert w == 612
         assert h == 792
+
+
+# ----------------------------------------------------------- mutating / save
+def _make_pdf(path: Path, pages: int = 3) -> Path:
+    doc = fitz.open()
+    for i in range(pages):
+        p = doc.new_page()
+        p.insert_text((50, 100), f"Page {i + 1}", fontsize=24)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_new_document_is_not_modified(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf")
+    with Document.open(pdf) as doc:
+        assert doc.is_modified is False
+
+
+def test_rotate_page_marks_document_modified(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf")
+    with Document.open(pdf) as doc:
+        doc.rotate_page(0, 90)
+        assert doc.is_modified is True
+        assert doc.page_rotation(0) == 90
+
+
+def test_rotate_page_is_cumulative(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf")
+    with Document.open(pdf) as doc:
+        doc.rotate_page(0, 90)
+        doc.rotate_page(0, 90)
+        doc.rotate_page(0, 90)
+        assert doc.page_rotation(0) == 270
+        doc.rotate_page(0, 90)
+        assert doc.page_rotation(0) == 0
+
+
+def test_rotate_page_accepts_negative_degrees(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf")
+    with Document.open(pdf) as doc:
+        doc.rotate_page(0, -90)
+        assert doc.page_rotation(0) == 270
+
+
+def test_rotate_page_rejects_non_multiple_of_90(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf")
+    with Document.open(pdf) as doc:
+        with pytest.raises(ValueError):
+            doc.rotate_page(0, 45)
+
+
+def test_save_clears_modified_flag(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf")
+    with Document.open(pdf) as doc:
+        doc.rotate_page(0, 90)
+        assert doc.is_modified
+        doc.save()
+        assert not doc.is_modified
+
+
+def test_save_persists_rotation_across_reopen(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf")
+    with Document.open(pdf) as doc:
+        doc.rotate_page(0, 90)
+        doc.save()
+    with Document.open(pdf) as doc2:
+        assert doc2.page_rotation(0) == 90
+
+
+def test_save_as_writes_new_file_and_updates_path(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf")
+    with Document.open(pdf) as doc:
+        doc.rotate_page(0, 180)
+        new_path = tmp_path / "b.pdf"
+        doc.save_as(new_path)
+        assert doc.path == new_path
+        assert not doc.is_modified
+    assert new_path.exists()
+    with Document.open(new_path) as reopened:
+        assert reopened.page_rotation(0) == 180
