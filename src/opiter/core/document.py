@@ -77,6 +77,43 @@ class Document:
         page.set_rotation(new_rot)
         self._modified = True
 
+    def delete_page(self, index: int) -> None:
+        """Delete page at *index*. The document must have more than one page."""
+        if not 0 <= index < self.page_count:
+            raise IndexError(
+                f"Page {index} out of range (0..{self.page_count - 1})"
+            )
+        if self.page_count == 1:
+            raise ValueError("Cannot delete the only page in the document")
+        self._doc.delete_page(index)
+        self._modified = True
+
+    def insert_blank_page(
+        self,
+        after_index: int,
+        width: float | None = None,
+        height: float | None = None,
+    ) -> int:
+        """Insert a blank page directly after *after_index*. Return the new
+        page's index.
+
+        If ``width`` or ``height`` is omitted, the dimensions of the page at
+        *after_index* are used so the blank page matches its neighbor.
+        """
+        if not 0 <= after_index < self.page_count:
+            raise IndexError(
+                f"Page {after_index} out of range (0..{self.page_count - 1})"
+            )
+        ref_w, ref_h = self.page_size(after_index)
+        new_idx = after_index + 1
+        self._doc.new_page(
+            pno=new_idx,
+            width=width if width is not None else ref_w,
+            height=height if height is not None else ref_h,
+        )
+        self._modified = True
+        return new_idx
+
     # --------------------------------------------------------------- save
     def save(self) -> None:
         """Save changes back to the original file (incremental write)."""

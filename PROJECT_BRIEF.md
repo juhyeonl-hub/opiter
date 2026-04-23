@@ -145,7 +145,7 @@ opiter/
 - [x] **Step 4-5**: 다크/라이트 모드 토글 (View 메뉴 + QPalette + QSS, Ctrl+Shift+D)
 - [x] **Step 5**: Phase 1 Self-Verification Report ([docs/phase1_self_verification.md](docs/phase1_self_verification.md))
 - [x] **Step 6-1**: Save / Save As 인프라 + 페이지 회전 (90° 누적, modified 마커, 저장 확인)
-- [ ] **Step 6-2**: 페이지 삭제 + 빈 페이지 추가
+- [x] **Step 6-2**: 페이지 삭제 (확인 다이얼로그) + 빈 페이지 삽입 (이웃 페이지 크기 상속)
 - [ ] **Step 6-3**: 페이지 순서 변경 (썸네일 드래그-앤-드롭)
 - [ ] **Step 6-4**: PDF 추출 + 나누기 (범위 다이얼로그, 새 파일 출력)
 - [ ] **Step 6-5**: PDF 합치기 (다중 파일 선택, 순서 지정)

@@ -111,6 +111,13 @@ class MainWindow(QMainWindow):
         self._action_rotate_left.setShortcut(QKeySequence("Ctrl+Shift+R"))
         self._action_rotate_left.triggered.connect(self._on_rotate_left)
 
+        self._action_delete_page = QAction("&Delete Page", self)
+        self._action_delete_page.setShortcut(QKeySequence("Ctrl+Delete"))
+        self._action_delete_page.triggered.connect(self._on_delete_page)
+
+        self._action_insert_blank = QAction("&Insert Blank Page After", self)
+        self._action_insert_blank.triggered.connect(self._on_insert_blank_page)
+
         self._action_prev = QAction("&Previous Page", self)
         self._action_prev.setShortcut(QKeySequence(Qt.Key.Key_PageUp))
         self._action_prev.triggered.connect(self._viewer.prev_page)
@@ -201,6 +208,9 @@ class MainWindow(QMainWindow):
         edit_menu.addSeparator()
         edit_menu.addAction(self._action_rotate_right)
         edit_menu.addAction(self._action_rotate_left)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self._action_insert_blank)
+        edit_menu.addAction(self._action_delete_page)
 
         view_menu = menubar.addMenu("&View")
         view_menu.addAction(self._action_prev)
@@ -326,6 +336,56 @@ class MainWindow(QMainWindow):
         self._thumb_panel.select_page(idx)
         self._refresh_title()
         self._update_action_states()
+
+    def _on_delete_page(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        if doc.page_count == 1:
+            QMessageBox.warning(
+                self,
+                "Cannot Delete",
+                "A PDF must contain at least one page.",
+            )
+            return
+        idx = self._viewer.current_page
+        button = QMessageBox.question(
+            self,
+            "Delete Page",
+            f"Delete page {idx + 1} of {doc.page_count}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if button != QMessageBox.StandardButton.Yes:
+            return
+        doc.delete_page(idx)
+        self._thumb_panel.set_document(doc)
+        self._viewer.reload_current()
+        self._thumb_panel.select_page(self._viewer.current_page)
+        self._reset_search_state()
+        self._refresh_title()
+        self._update_action_states()
+        self.statusBar().showMessage(
+            f"Deleted page {idx + 1}. Now showing page "
+            f"{self._viewer.current_page + 1} of {doc.page_count}.",
+            4000,
+        )
+
+    def _on_insert_blank_page(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        idx = self._viewer.current_page
+        new_idx = doc.insert_blank_page(after_index=idx)
+        self._thumb_panel.set_document(doc)
+        self._viewer.goto_page(new_idx)
+        self._thumb_panel.select_page(new_idx)
+        self._reset_search_state()
+        self._refresh_title()
+        self._update_action_states()
+        self.statusBar().showMessage(
+            f"Inserted blank page at position {new_idx + 1}.", 4000
+        )
 
     def _on_page_changed(self, current: int, total: int) -> None:
         self._page_indicator.setText(f"{current + 1} / {total}" if total > 0 else "—")
@@ -466,10 +526,14 @@ class MainWindow(QMainWindow):
             self._action_save_as,
             self._action_rotate_right,
             self._action_rotate_left,
+            self._action_insert_blank,
         ):
             act.setEnabled(has_doc)
         doc = self._viewer._doc  # noqa: SLF001
         self._action_save.setEnabled(has_doc and doc is not None and doc.is_modified)
+        self._action_delete_page.setEnabled(
+            has_doc and doc is not None and doc.page_count > 1
+        )
 
     # -------------------------------------------------------------- helpers
     def _refresh_title(self) -> None:

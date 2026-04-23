@@ -144,6 +144,79 @@ def test_save_as_writes_new_file_and_updates_path(tmp_path: Path) -> None:
         assert reopened.page_rotation(0) == 180
 
 
+def test_delete_page_reduces_count_and_marks_modified(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=3)
+    with Document.open(pdf) as doc:
+        doc.delete_page(1)
+        assert doc.page_count == 2
+        assert doc.is_modified is True
+
+
+def test_delete_page_invalid_index_raises(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=3)
+    with Document.open(pdf) as doc:
+        with pytest.raises(IndexError):
+            doc.delete_page(99)
+        with pytest.raises(IndexError):
+            doc.delete_page(-1)
+
+
+def test_delete_page_refuses_to_delete_only_page(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=1)
+    with Document.open(pdf) as doc:
+        with pytest.raises(ValueError):
+            doc.delete_page(0)
+        # Document must remain intact and unmodified.
+        assert doc.page_count == 1
+        assert doc.is_modified is False
+
+
+def test_delete_page_persists_after_save(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=4)
+    with Document.open(pdf) as doc:
+        doc.delete_page(2)
+        doc.save()
+    with Document.open(pdf) as reopened:
+        assert reopened.page_count == 3
+
+
+def test_insert_blank_page_increases_count_and_marks_modified(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=2)
+    with Document.open(pdf) as doc:
+        new_idx = doc.insert_blank_page(after_index=0)
+        assert new_idx == 1
+        assert doc.page_count == 3
+        assert doc.is_modified is True
+
+
+def test_insert_blank_page_inherits_neighbor_size(tmp_path: Path) -> None:
+    """Default dimensions = the page at after_index."""
+    doc = fitz.open()
+    doc.new_page(width=200, height=300)  # arbitrary non-default size
+    out = tmp_path / "tiny.pdf"
+    doc.save(out)
+    doc.close()
+    with Document.open(out) as d:
+        d.insert_blank_page(after_index=0)
+        w, h = d.page_size(1)
+        assert (w, h) == (200, 300)
+
+
+def test_insert_blank_page_after_last_appends(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=2)
+    with Document.open(pdf) as doc:
+        new_idx = doc.insert_blank_page(after_index=doc.page_count - 1)
+        assert new_idx == 2
+        assert doc.page_count == 3
+
+
+def test_insert_blank_page_invalid_index_raises(tmp_path: Path) -> None:
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=2)
+    with Document.open(pdf) as doc:
+        with pytest.raises(IndexError):
+            doc.insert_blank_page(after_index=99)
+
+
 def test_save_after_save_as_does_not_raise(tmp_path: Path) -> None:
     """Regression: PyMuPDF's incremental save requires the document's
     internal source path to match the target path. After save_as, the

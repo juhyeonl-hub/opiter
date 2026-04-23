@@ -96,6 +96,21 @@ class ViewerWidget(QScrollArea):
     def last_page(self) -> None:
         self.goto_page(self.page_count - 1)
 
+    def reload_current(self) -> None:
+        """Re-render the current page and emit page_changed.
+
+        Use after the underlying document is mutated externally (delete /
+        insert page, etc.) so the viewer picks up the new content and the
+        UI's indicators (page count, thumbnail selection) refresh. Clamps
+        ``current_page`` if the page count shrank below it.
+        """
+        if self._doc is None:
+            return
+        if self._current_page >= self.page_count:
+            self._current_page = max(0, self.page_count - 1)
+        self._render_current(scroll_to="top")
+        self.page_changed.emit(self._current_page, self.page_count)
+
     # ----------------------------------------------------------------- zoom
     def set_zoom(self, zoom: float) -> None:
         """Set an arbitrary zoom factor, clamped to [0.1, 10.0]."""
