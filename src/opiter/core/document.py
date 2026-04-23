@@ -48,6 +48,15 @@ class Document:
             )
         return self._doc.load_page(index)
 
+    def page_size(self, index: int) -> tuple[float, float]:
+        """Return ``(width, height)`` of page *index* in PDF points.
+
+        Exposes page dimensions to UI code without forcing it to touch
+        ``fitz.Page`` directly.
+        """
+        rect = self.page(index).rect
+        return rect.width, rect.height
+
     def close(self) -> None:
         self._doc.close()
 

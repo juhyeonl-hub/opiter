@@ -139,7 +139,7 @@ opiter/
 - [x] **Step 2**: 핵심 문서 작성 (`README.md`, `PROJECT.md`, `FEATURES.md`, `ARCHITECTURE.md`, `LICENSE`, `CONTRIBUTING.md`)
 - [x] **Step 3**: 기본 애플리케이션 프레임 (메인 윈도우, 메뉴/툴바, PDF 열기 다이얼로그, 첫 페이지 렌더링)
 - [x] **Step 4-1**: 페이지 네비게이션 (Prev/Next/First/Last/GoTo + 단축키 + 인디케이터 + 휠 edge-trigger 페이지 전환)
-- [ ] **Step 4-2**: 줌 컨트롤 (Zoom In/Out, fit-to-width, fit-to-page, 프리셋)
+- [x] **Step 4-2**: 줌 컨트롤 (Zoom In/Out, fit-to-width, fit-to-page, 프리셋, Ctrl+휠)
 - [ ] **Step 4-3**: 썸네일 사이드바 (좌측 도크, 클릭 점프)
 - [ ] **Step 4-4**: 텍스트 검색 (Ctrl+F, 매칭 강조, F3 다음/이전)
 - [ ] **Step 4-5**: 다크/라이트 모드 토글 (View 메뉴 + QSS)

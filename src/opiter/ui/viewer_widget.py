@@ -12,13 +12,24 @@ from opiter.core.renderer import RenderedPage, render_page
 
 ScrollPosition = Literal["top", "bottom"]
 
+# Discrete zoom stops (monotonic). zoom_in/zoom_out step through these;
+# set_zoom accepts arbitrary values within [_ZOOM_MIN, _ZOOM_MAX].
+_ZOOM_PRESETS: tuple[float, ...] = (
+    0.25, 0.33, 0.50, 0.67, 0.75, 1.00,
+    1.25, 1.50, 2.00, 3.00, 4.00,
+)
+_ZOOM_MIN = 0.10
+_ZOOM_MAX = 10.00
+
 
 class ViewerWidget(QScrollArea):
     """Scrollable widget showing the current PDF page as a rasterized image."""
 
     page_changed = Signal(int, int)
-    """Emitted as ``(current_index, total_count)`` whenever the displayed page changes
-    or a new document is loaded."""
+    """``(current_index, total_count)`` — page or document changed."""
+
+    zoom_changed = Signal(float)
+    """New zoom factor (e.g. 1.0 for 100%)."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -33,6 +44,7 @@ class ViewerWidget(QScrollArea):
         self._current_page: int = 0
         self._zoom: float = 1.0
 
+    # -------------------------------------------------------------- accessors
     def has_document(self) -> bool:
         return self._doc is not None
 
@@ -44,6 +56,11 @@ class ViewerWidget(QScrollArea):
     def current_page(self) -> int:
         return self._current_page
 
+    @property
+    def zoom(self) -> float:
+        return self._zoom
+
+    # ----------------------------------------------------------- document ops
     def set_document(self, doc: Document) -> None:
         """Replace the current document and render its first page."""
         if self._doc is not None:
@@ -53,14 +70,9 @@ class ViewerWidget(QScrollArea):
         self._render_current(scroll_to="top")
         self.page_changed.emit(self._current_page, self.page_count)
 
+    # ---------------------------------------------------------- navigation
     def goto_page(self, index: int, scroll_to: ScrollPosition = "top") -> None:
-        """Jump to *index* (0-based). Out-of-range values are clamped silently.
-
-        ``scroll_to`` controls where the viewport lands on the new page:
-        ``"top"`` (default) for keyboard/button nav, ``"bottom"`` for wheel-up
-        past the current page's top so the user sees the preceding page's
-        bottom — preserving reading continuity.
-        """
+        """Jump to *index* (0-based). Out-of-range values are clamped silently."""
         if self._doc is None:
             return
         clamped = max(0, min(index, self.page_count - 1))
@@ -82,8 +94,57 @@ class ViewerWidget(QScrollArea):
     def last_page(self) -> None:
         self.goto_page(self.page_count - 1)
 
+    # ----------------------------------------------------------------- zoom
+    def set_zoom(self, zoom: float) -> None:
+        """Set an arbitrary zoom factor, clamped to [0.1, 10.0]."""
+        zoom = max(_ZOOM_MIN, min(_ZOOM_MAX, zoom))
+        if abs(zoom - self._zoom) < 1e-6:
+            return
+        self._zoom = zoom
+        if self._doc is not None:
+            self._render_current(scroll_to="top")
+        self.zoom_changed.emit(self._zoom)
+
+    def zoom_in(self) -> None:
+        for z in _ZOOM_PRESETS:
+            if z > self._zoom + 1e-6:
+                self.set_zoom(z)
+                return
+        self.set_zoom(self._zoom * 1.25)
+
+    def zoom_out(self) -> None:
+        for z in reversed(_ZOOM_PRESETS):
+            if z < self._zoom - 1e-6:
+                self.set_zoom(z)
+                return
+        self.set_zoom(self._zoom / 1.25)
+
+    def reset_zoom(self) -> None:
+        """Set zoom to 100% (actual size)."""
+        self.set_zoom(1.0)
+
+    def fit_width(self) -> None:
+        """Scale so the page width matches the viewport width."""
+        if self._doc is None:
+            return
+        page_w, _ = self._doc.page_size(self._current_page)
+        viewport_w = self.viewport().width()
+        if page_w > 0 and viewport_w > 0:
+            self.set_zoom(viewport_w / page_w)
+
+    def fit_page(self) -> None:
+        """Scale so the entire page fits within the viewport."""
+        if self._doc is None:
+            return
+        page_w, page_h = self._doc.page_size(self._current_page)
+        vw = self.viewport().width()
+        vh = self.viewport().height()
+        if page_w > 0 and page_h > 0 and vw > 0 and vh > 0:
+            self.set_zoom(min(vw / page_w, vh / page_h))
+
+    # ------------------------------------------------------------ wheel/events
     def wheelEvent(self, event: QWheelEvent) -> None:
-        """Advance/retreat page when the wheel scrolls past the viewport edge."""
+        """Ctrl+wheel → zoom. Plain wheel at page edges → advance/retreat page."""
         if self._doc is None:
             super().wheelEvent(event)
             return
@@ -91,6 +152,14 @@ class ViewerWidget(QScrollArea):
         delta_y = event.angleDelta().y()
         if delta_y == 0:
             super().wheelEvent(event)
+            return
+
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if delta_y > 0:
+                self.zoom_in()
+            else:
+                self.zoom_out()
+            event.accept()
             return
 
         sb = self.verticalScrollBar()
@@ -108,6 +177,7 @@ class ViewerWidget(QScrollArea):
 
         super().wheelEvent(event)
 
+    # -------------------------------------------------------------- rendering
     def _render_current(self, scroll_to: ScrollPosition = "top") -> None:
         if self._doc is None:
             return

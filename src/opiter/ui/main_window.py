@@ -30,10 +30,15 @@ class MainWindow(QMainWindow):
         self._viewer = ViewerWidget(self)
         self.setCentralWidget(self._viewer)
         self._viewer.page_changed.connect(self._on_page_changed)
+        self._viewer.zoom_changed.connect(self._on_zoom_changed)
 
         self._page_indicator = QLabel("—")
         self._page_indicator.setMinimumWidth(80)
         self._page_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._zoom_indicator = QLabel("100%")
+        self._zoom_indicator.setMinimumWidth(60)
+        self._zoom_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._build_actions()
         self._build_menus()
@@ -71,6 +76,29 @@ class MainWindow(QMainWindow):
         self._action_goto.setShortcut(QKeySequence("Ctrl+G"))
         self._action_goto.triggered.connect(self._on_goto_page)
 
+        # Adobe/Foxit/Okular-style zoom shortcuts
+        self._action_zoom_in = QAction("Zoom &In", self)
+        self._action_zoom_in.setShortcuts(
+            [QKeySequence.StandardKey.ZoomIn, QKeySequence("Ctrl+=")]
+        )
+        self._action_zoom_in.triggered.connect(self._viewer.zoom_in)
+
+        self._action_zoom_out = QAction("Zoom &Out", self)
+        self._action_zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
+        self._action_zoom_out.triggered.connect(self._viewer.zoom_out)
+
+        self._action_fit_page = QAction("Fit &Page", self)
+        self._action_fit_page.setShortcut(QKeySequence("Ctrl+0"))
+        self._action_fit_page.triggered.connect(self._viewer.fit_page)
+
+        self._action_actual_size = QAction("&Actual Size (100%)", self)
+        self._action_actual_size.setShortcut(QKeySequence("Ctrl+1"))
+        self._action_actual_size.triggered.connect(self._viewer.reset_zoom)
+
+        self._action_fit_width = QAction("Fit &Width", self)
+        self._action_fit_width.setShortcut(QKeySequence("Ctrl+2"))
+        self._action_fit_width.triggered.connect(self._viewer.fit_width)
+
         self._action_about = QAction("&About Opiter", self)
         self._action_about.triggered.connect(self._on_about)
 
@@ -87,8 +115,14 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._action_next)
         view_menu.addAction(self._action_first)
         view_menu.addAction(self._action_last)
-        view_menu.addSeparator()
         view_menu.addAction(self._action_goto)
+        view_menu.addSeparator()
+        view_menu.addAction(self._action_zoom_in)
+        view_menu.addAction(self._action_zoom_out)
+        view_menu.addSeparator()
+        view_menu.addAction(self._action_fit_page)
+        view_menu.addAction(self._action_actual_size)
+        view_menu.addAction(self._action_fit_width)
 
         help_menu = menubar.addMenu("&Help")
         help_menu.addAction(self._action_about)
@@ -101,6 +135,10 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._action_prev)
         toolbar.addAction(self._action_next)
         toolbar.addWidget(self._page_indicator)
+        toolbar.addSeparator()
+        toolbar.addAction(self._action_zoom_out)
+        toolbar.addWidget(self._zoom_indicator)
+        toolbar.addAction(self._action_zoom_in)
 
     # ----------------------------------------------------------------- slots
     def _on_open(self) -> None:
@@ -137,6 +175,9 @@ class MainWindow(QMainWindow):
         self._page_indicator.setText(f"{current + 1} / {total}" if total > 0 else "—")
         self._update_action_states()
 
+    def _on_zoom_changed(self, zoom: float) -> None:
+        self._zoom_indicator.setText(f"{round(zoom * 100)}%")
+
     def _on_goto_page(self) -> None:
         if not self._viewer.has_document():
             return
@@ -170,3 +211,11 @@ class MainWindow(QMainWindow):
         self._action_first.setEnabled(has_doc and cur > 0)
         self._action_last.setEnabled(has_doc and cur < last)
         self._action_goto.setEnabled(has_doc)
+        for act in (
+            self._action_zoom_in,
+            self._action_zoom_out,
+            self._action_fit_page,
+            self._action_actual_size,
+            self._action_fit_width,
+        ):
+            act.setEnabled(has_doc)

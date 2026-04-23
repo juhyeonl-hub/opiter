@@ -49,3 +49,15 @@ def test_page_index_bounds(sample_pdf: Path) -> None:
             doc.page(3)
         with pytest.raises(IndexError):
             doc.page(-1)
+
+
+def test_page_size_returns_width_and_height(tmp_path: Path) -> None:
+    doc = fitz.open()
+    doc.new_page(width=612, height=792)  # US Letter
+    out = tmp_path / "letter.pdf"
+    doc.save(out)
+    doc.close()
+    with Document.open(out) as d:
+        w, h = d.page_size(0)
+        assert w == 612
+        assert h == 792
