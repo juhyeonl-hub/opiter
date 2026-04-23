@@ -5,6 +5,8 @@ from pathlib import Path
 
 import fitz
 import pytest
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
 
 from opiter.core.document import Document
 from opiter.ui.viewer_widget import ViewerWidget
@@ -22,6 +24,32 @@ def sample_pdf(tmp_path: Path) -> Path:
     return out
 
 
+def _wheel(delta_y: int) -> QWheelEvent:
+    """Build a synthetic vertical-scroll wheel event."""
+    return QWheelEvent(
+        QPointF(10, 10),
+        QPointF(10, 10),
+        QPoint(0, 0),
+        QPoint(0, delta_y),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+
+
+def _scrollable_viewer(qtbot, pdf: Path) -> ViewerWidget:
+    """Build a viewer forcibly smaller than the page so scrollbars exist."""
+    w = ViewerWidget()
+    qtbot.addWidget(w)
+    w.resize(200, 400)
+    w.show()
+    qtbot.waitExposed(w)
+    w.set_document(Document.open(pdf))
+    return w
+
+
+# ---------------------------------------------------------------- initial state
 def test_initial_state_no_document(qtbot):
     w = ViewerWidget()
     qtbot.addWidget(w)
@@ -41,6 +69,7 @@ def test_set_document_emits_page_changed_with_first_page(qtbot, sample_pdf):
     assert w.page_count == 5
 
 
+# ---------------------------------------------------------------- programmatic
 def test_next_and_prev_within_bounds(qtbot, sample_pdf):
     w = ViewerWidget()
     qtbot.addWidget(w)
@@ -59,13 +88,13 @@ def test_navigation_clamps_at_boundaries(qtbot, sample_pdf):
     qtbot.addWidget(w)
     w.set_document(Document.open(sample_pdf))
 
-    w.prev_page()  # already at 0
+    w.prev_page()
     assert w.current_page == 0
 
     w.last_page()
     assert w.current_page == 4
 
-    w.next_page()  # already at last
+    w.next_page()
     assert w.current_page == 4
 
 
@@ -86,6 +115,56 @@ def test_no_op_navigation_does_not_emit(qtbot, sample_pdf):
     qtbot.addWidget(w)
     w.set_document(Document.open(sample_pdf))
 
-    # We are already at page 0; prev_page should be a no-op (no signal).
     with qtbot.assertNotEmitted(w.page_changed):
         w.prev_page()
+
+
+# ------------------------------------------------------------------ wheel edge
+def test_wheel_down_at_bottom_advances_page(qtbot, sample_pdf):
+    w = _scrollable_viewer(qtbot, sample_pdf)
+    sb = w.verticalScrollBar()
+    sb.setValue(sb.maximum())
+
+    w.wheelEvent(_wheel(-120))
+    assert w.current_page == 1
+
+
+def test_wheel_up_at_top_retreats_page_and_lands_at_bottom(qtbot, sample_pdf):
+    w = _scrollable_viewer(qtbot, sample_pdf)
+    w.next_page()
+    sb = w.verticalScrollBar()
+    sb.setValue(sb.minimum())
+
+    w.wheelEvent(_wheel(120))
+    assert w.current_page == 0
+    sb = w.verticalScrollBar()
+    assert sb.value() == sb.maximum()
+
+
+def test_wheel_in_middle_does_not_change_page(qtbot, sample_pdf):
+    w = _scrollable_viewer(qtbot, sample_pdf)
+    sb = w.verticalScrollBar()
+    sb.setValue((sb.minimum() + sb.maximum()) // 2)
+
+    before = w.current_page
+    w.wheelEvent(_wheel(-120))
+    assert w.current_page == before
+
+
+def test_wheel_down_at_last_page_bottom_does_not_advance(qtbot, sample_pdf):
+    w = _scrollable_viewer(qtbot, sample_pdf)
+    w.last_page()
+    sb = w.verticalScrollBar()
+    sb.setValue(sb.maximum())
+
+    w.wheelEvent(_wheel(-120))
+    assert w.current_page == 4
+
+
+def test_wheel_up_at_first_page_top_does_not_retreat(qtbot, sample_pdf):
+    w = _scrollable_viewer(qtbot, sample_pdf)
+    sb = w.verticalScrollBar()
+    sb.setValue(sb.minimum())
+
+    w.wheelEvent(_wheel(120))
+    assert w.current_page == 0
