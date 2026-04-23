@@ -1,9 +1,19 @@
-"""Application entry point.
+"""Application entry point: bootstraps QApplication and shows the main window."""
+from __future__ import annotations
 
-Step 3에서 실제 PySide6 메인 윈도우 부팅 로직으로 교체될 placeholder.
-"""
+import sys
+
+from PySide6.QtWidgets import QApplication
+
+from opiter.ui.main_window import MainWindow
 
 
 def main() -> None:
-    # [TEMP] Step 1 셋업 검증용 placeholder. Step 3에서 GUI 진입점으로 교체.
-    print("Opiter v0.1.0 — setup OK (GUI not yet implemented; see Step 3)")
+    app = QApplication(sys.argv)
+    app.setApplicationName("Opiter")
+    app.setOrganizationName("Opiter")
+
+    window = MainWindow()
+    window.show()
+
+    sys.exit(app.exec())
