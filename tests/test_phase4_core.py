@@ -152,6 +152,25 @@ def test_text_watermark_empty_text_rejected(text_pdf: Path) -> None:
             add_text_watermark(doc, "")
 
 
+def test_text_watermark_rejects_invalid_rotation(text_pdf: Path) -> None:
+    """Regression: PyMuPDF's FreeText silently fails for rotate values
+    other than 0/90/180/270 (e.g. 45°). The helper must reject upfront."""
+    with Document.open(text_pdf) as doc:
+        with pytest.raises(ValueError):
+            add_text_watermark(doc, "DRAFT", rotate=45)
+        with pytest.raises(ValueError):
+            add_text_watermark(doc, "DRAFT", rotate=30)
+
+
+def test_text_watermark_valid_rotations_all_succeed(text_pdf: Path) -> None:
+    for rot in (0, 90, 180, 270):
+        with Document.open(text_pdf) as doc:
+            add_text_watermark(doc, f"R{rot}", rotate=rot)
+            # Verify an annot was actually added on every page
+            for i in range(doc.page_count):
+                assert len(list(doc.page(i).annots())) == 1
+
+
 # -------------------------------------------------------- 9-5 metadata
 def test_metadata_round_trip(text_pdf: Path) -> None:
     with Document.open(text_pdf) as doc:

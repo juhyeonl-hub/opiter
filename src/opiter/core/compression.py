@@ -9,13 +9,30 @@ from opiter.core.document import Document
 Quality = Literal["low", "medium", "high"]
 
 # Preset tuning: PyMuPDF's save() supports several size-reduction flags.
-# We vary garbage collection intensity and whether content streams are
-# deflated/cleaned. High quality = minimal changes (just dedup + deflate);
-# Low = aggressive garbage pass + full recompression.
+# Without deflate_images / deflate_fonts the gain is negligible for PDFs
+# whose bulk is embedded images/fonts — which is most of them.
 _PRESETS = {
-    "high":   {"garbage": 1, "deflate": True,  "clean": False},
-    "medium": {"garbage": 3, "deflate": True,  "clean": True},
-    "low":    {"garbage": 4, "deflate": True,  "clean": True},
+    "high": {
+        "garbage": 1,
+        "deflate": True,
+        "deflate_images": False,
+        "deflate_fonts": False,
+        "clean": False,
+    },
+    "medium": {
+        "garbage": 3,
+        "deflate": True,
+        "deflate_images": True,
+        "deflate_fonts": True,
+        "clean": True,
+    },
+    "low": {
+        "garbage": 4,
+        "deflate": True,
+        "deflate_images": True,
+        "deflate_fonts": True,
+        "clean": True,
+    },
 }
 
 
@@ -37,6 +54,8 @@ def compress_pdf(
         str(out),
         garbage=opts["garbage"],
         deflate=opts["deflate"],
+        deflate_images=opts["deflate_images"],
+        deflate_fonts=opts["deflate_fonts"],
         clean=opts["clean"],
     )
     return out

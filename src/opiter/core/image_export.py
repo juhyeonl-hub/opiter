@@ -53,13 +53,15 @@ def export_pages_as_images(
     written: list[Path] = []
     for i, idx in enumerate(page_indices, start=1):
         page = doc.page(idx)
-        pix = page.get_pixmap(matrix=matrix, alpha=(fmt_l == "png"))
+        # alpha=False → PDF's white page background is baked into the image,
+        # matching what the user sees in the viewer. alpha=True would strip
+        # the background and make the export look like content floating in
+        # a transparent void.
+        pix = page.get_pixmap(matrix=matrix, alpha=False)
         path = out_dir / f"{base_name}_{i}.{fmt_l}"
         if fmt_l == "png":
             pix.save(str(path))
         else:
-            # JPEG doesn't support alpha; PyMuPDF's save with jpg extension
-            # encodes via jpg_quality kw.
             pix.save(str(path), jpg_quality=jpg_quality)
         written.append(path)
     return written

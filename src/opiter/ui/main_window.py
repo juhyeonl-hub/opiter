@@ -1292,13 +1292,32 @@ class MainWindow(QMainWindow):
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None:
             return
-        quality, ok = QInputDialog.getItem(
-            self, "Compression Quality",
-            "Preset (Low = smallest / High = best quality):",
-            ["low", "medium", "high"], 1, False,
+        # 3 explicit buttons instead of a combobox popup — cleaner UX and
+        # sidesteps a Qt/WSLg quirk where the dropdown stayed open after
+        # picking an item.
+        box = QMessageBox(self)
+        box.setWindowTitle("Compression Quality")
+        box.setText("Pick a compression preset:")
+        box.setInformativeText(
+            "Low = smallest file / most loss\n"
+            "Medium = balanced (default)\n"
+            "High = largest file / least loss"
         )
-        if not ok:
+        btn_low = box.addButton("Low", QMessageBox.ButtonRole.AcceptRole)
+        btn_med = box.addButton("Medium", QMessageBox.ButtonRole.AcceptRole)
+        btn_high = box.addButton("High", QMessageBox.ButtonRole.AcceptRole)
+        btn_cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(btn_med)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is btn_cancel or clicked is None:
             return
+        if clicked is btn_low:
+            quality = "low"
+        elif clicked is btn_high:
+            quality = "high"
+        else:
+            quality = "medium"
         default_out = str(doc.path.with_name(f"{doc.path.stem}_compressed.pdf"))
         out_str, _ = QFileDialog.getSaveFileName(
             self, "Save Compressed Copy", default_out, "PDF files (*.pdf)"
@@ -1306,7 +1325,7 @@ class MainWindow(QMainWindow):
         if not out_str:
             return
         try:
-            compress_pdf(doc, out_str, quality=quality)  # type: ignore[arg-type]
+            compress_pdf(doc, out_str, quality=quality)
         except Exception as exc:
             QMessageBox.critical(self, "Compression Failed", str(exc))
             return

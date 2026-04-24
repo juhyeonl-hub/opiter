@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -40,14 +41,16 @@ class WatermarkDialog(QDialog):
         self._opacity.setRange(0.05, 1.0)
         self._opacity.setSingleStep(0.05)
         self._opacity.setValue(0.35)
-        self._rotate = QSpinBox()
-        self._rotate.setRange(-180, 180)
-        self._rotate.setValue(45)
+        # PyMuPDF's FreeText annot only accepts rotate values of 0/90/180/270.
+        # Arbitrary angles (e.g. 45°) silently fail to render.
+        self._rotate = QComboBox()
+        self._rotate.addItems(["0° (horizontal)", "90°", "180°", "270°"])
+        self._rotate.setCurrentIndex(0)
 
         form.addRow("Text", self._text)
         form.addRow("Font size (pt)", self._fontsize)
         form.addRow("Opacity (0-1)", self._opacity)
-        form.addRow("Rotation (degrees)", self._rotate)
+        form.addRow("Rotation", self._rotate)
         outer.addLayout(form)
 
         buttons = QDialogButtonBox(
@@ -59,9 +62,10 @@ class WatermarkDialog(QDialog):
         outer.addWidget(buttons)
 
     def settings(self) -> WatermarkSettings:
+        rotate_map = {0: 0, 1: 90, 2: 180, 3: 270}
         return WatermarkSettings(
             text=self._text.text().strip(),
             fontsize=self._fontsize.value(),
             opacity=self._opacity.value(),
-            rotate=self._rotate.value(),
+            rotate=rotate_map.get(self._rotate.currentIndex(), 0),
         )

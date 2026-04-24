@@ -9,6 +9,9 @@ import fitz
 from opiter.core.document import Document
 
 
+_VALID_ROTATE = {0, 90, 180, 270}
+
+
 def add_text_watermark(
     doc: Document,
     text: str,
@@ -16,16 +19,22 @@ def add_text_watermark(
     fontsize: int = 48,
     color: tuple[float, float, float] = (0.7, 0.7, 0.7),
     opacity: float = 0.35,
-    rotate: int = 45,
+    rotate: int = 0,
 ) -> None:
-    """Draw *text* diagonally across the center of each target page.
+    """Draw *text* across the center of each target page as a FreeText annot.
 
-    ``page_indices=None`` means "every page". ``opacity`` is 0..1 (passed
-    through Annot.set_opacity). ``rotate`` in degrees; default 45 (standard
-    diagonal watermark).
+    ``page_indices=None`` means "every page". ``opacity`` 0..1 passes through
+    Annot.set_opacity. ``rotate`` must be 0/90/180/270 — PyMuPDF's FreeText
+    annot rejects other angles silently (which was why 45° watermarks were
+    invisible). For diagonal stamping, draw onto page content directly —
+    out of scope here.
     """
     if not text:
         raise ValueError("Watermark text cannot be empty")
+    if rotate not in _VALID_ROTATE:
+        raise ValueError(
+            f"rotate must be one of {sorted(_VALID_ROTATE)}; got {rotate}"
+        )
     targets = list(page_indices) if page_indices is not None else list(
         range(doc.page_count)
     )
@@ -33,8 +42,11 @@ def add_text_watermark(
         page = doc.page(idx)
         rect = page.rect
         cx, cy = rect.width / 2, rect.height / 2
-        # Centered rect wide enough to hold rotated text.
-        box_w, box_h = rect.width, fontsize * 1.5
+        # Rect sized so horizontal/vertical text at the chosen rotation fits.
+        if rotate in (90, 270):
+            box_w, box_h = fontsize * 1.5, rect.height
+        else:
+            box_w, box_h = rect.width, fontsize * 1.5
         wm_rect = fitz.Rect(
             cx - box_w / 2, cy - box_h / 2,
             cx + box_w / 2, cy + box_h / 2,
