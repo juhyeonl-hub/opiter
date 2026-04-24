@@ -219,6 +219,21 @@ class Document:
         self.path = new_path
         self._modified = False
 
+    # --------------------------------------------------------------- undo support
+    def snapshot(self) -> bytes:
+        """Serialize the current document to PDF bytes (for undo/redo)."""
+        return self._doc.tobytes()
+
+    def replace_content(self, pdf_bytes: bytes) -> None:
+        """Replace the in-memory document with *pdf_bytes* (undo/redo restore).
+
+        The path stays the same. Modified flag is set True because the
+        in-memory state no longer matches what's on disk.
+        """
+        self._doc.close()
+        self._doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        self._modified = True
+
     # --------------------------------------------------------------- lifecycle
     def close(self) -> None:
         self._doc.close()

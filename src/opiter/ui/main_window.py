@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -33,6 +33,7 @@ from opiter.core.page_ops import (
 )
 from opiter.core.preferences import Preferences
 from opiter.core.search import SearchMatch, search
+from opiter.core.undo import SnapshotCommand
 from opiter.ui.page_canvas import ToolMode
 from opiter.ui.preferences_dialog import ColorEntry, KeymapEntry, PreferencesDialog
 from opiter.ui.search_bar import SearchBar
@@ -88,6 +89,10 @@ class MainWindow(QMainWindow):
         # POINTER selection state
         self._selected_annot_xref: int | None = None
         self._selected_annot_page: int | None = None
+
+        # Undo/redo
+        self._undo_stack = QUndoStack(self)
+        self._undo_stack.setUndoLimit(30)
 
         self._thumb_panel = ThumbnailPanel(
             self, thumb_width=self._prefs.thumbnail_width_px
@@ -261,6 +266,15 @@ class MainWindow(QMainWindow):
         self._action_preferences.setShortcut(QKeySequence("Ctrl+,"))
         self._action_preferences.triggered.connect(self._on_preferences)
 
+        # Undo / Redo come from the stack so their text auto-includes the
+        # command label, and they enable/disable correctly.
+        self._action_undo = self._undo_stack.createUndoAction(self, "&Undo")
+        self._action_undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self._action_redo = self._undo_stack.createRedoAction(self, "&Redo")
+        self._action_redo.setShortcuts(
+            [QKeySequence.StandardKey.Redo, QKeySequence("Ctrl+Y")]
+        )
+
         # ----- Annotation tool actions (mutually exclusive via QActionGroup) ---
         self._tool_group = QActionGroup(self)
         self._tool_group.setExclusive(True)
@@ -337,6 +351,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self._action_quit)
 
         edit_menu = menubar.addMenu("&Edit")
+        edit_menu.addAction(self._action_undo)
+        edit_menu.addAction(self._action_redo)
+        edit_menu.addSeparator()
         edit_menu.addAction(self._action_find)
         edit_menu.addAction(self._action_find_next)
         edit_menu.addAction(self._action_find_prev)
@@ -470,6 +487,7 @@ class MainWindow(QMainWindow):
         self._thumb_panel.select_page(self._viewer.current_page)
         self._reset_search_state()
         self._clear_annot_selection()
+        self._undo_stack.clear()
         self._refresh_title()
         self._update_action_states()
         # Update recent files (front of MRU) and refresh submenu
@@ -550,13 +568,8 @@ class MainWindow(QMainWindow):
         if doc is None:
             return
         idx = self._viewer.current_page
-        doc.rotate_page(idx, degrees)
-        # Re-render current page and refresh its thumbnail
-        self._viewer._render_current(scroll_to="top")  # noqa: SLF001
-        self._thumb_panel.set_document(doc)
-        self._thumb_panel.select_page(idx)
-        self._refresh_title()
-        self._update_action_states()
+        label = f"Rotate page {idx + 1} {'right' if degrees > 0 else 'left'}"
+        self._push_undo(label, lambda: doc.rotate_page(idx, degrees))
 
     def _on_delete_page(self) -> None:
         doc = self._viewer._doc  # noqa: SLF001
@@ -579,45 +592,20 @@ class MainWindow(QMainWindow):
         )
         if button != QMessageBox.StandardButton.Yes:
             return
-        doc.delete_page(idx)
-        self._thumb_panel.set_document(doc)
-        self._viewer.reload_current()
-        self._thumb_panel.select_page(self._viewer.current_page)
         self._reset_search_state()
-        self._refresh_title()
-        self._update_action_states()
-        self.statusBar().showMessage(
-            f"Deleted page {idx + 1}. Now showing page "
-            f"{self._viewer.current_page + 1} of {doc.page_count}.",
-            4000,
-        )
+        self._push_undo(f"Delete page {idx + 1}", lambda: doc.delete_page(idx))
+        self.statusBar().showMessage(f"Deleted page {idx + 1}.", 3000)
 
     def _on_pages_reordered(self, new_order: list[int]) -> None:
-        """The thumbnail panel was just reordered visually by the user.
-        Apply the new order to the document and re-label items so each
-        item ↔ doc-page mapping is the identity again."""
+        """User drag-reordered the thumbnails. Apply via undoable command."""
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None:
             return
-        # The viewer was showing some page (by old index). Find where it
-        # sits in the new order so we can keep the user on the same
-        # logical page.
-        cur_old = self._viewer.current_page
-        try:
-            cur_new = new_order.index(cur_old)
-        except ValueError:
-            cur_new = 0
-
-        doc.reorder_pages(new_order)
-        self._thumb_panel.relabel_after_reorder()
-
-        self._viewer._current_page = cur_new  # noqa: SLF001
-        self._viewer.reload_current()
-        self._thumb_panel.select_page(cur_new)
         self._reset_search_state()
-        self._refresh_title()
-        self._update_action_states()
-        self.statusBar().showMessage("Page order updated.", 4000)
+        self._push_undo(
+            "Reorder pages", lambda: doc.reorder_pages(new_order)
+        )
+        self.statusBar().showMessage("Page order updated.", 3000)
 
     def _on_extract_pages(self) -> None:
         doc = self._viewer._doc  # noqa: SLF001
@@ -781,16 +769,12 @@ class MainWindow(QMainWindow):
         if doc is None:
             return
         idx = self._viewer.current_page
-        new_idx = doc.insert_blank_page(after_index=idx)
-        self._thumb_panel.set_document(doc)
-        self._viewer.goto_page(new_idx)
-        self._thumb_panel.select_page(new_idx)
         self._reset_search_state()
-        self._refresh_title()
-        self._update_action_states()
-        self.statusBar().showMessage(
-            f"Inserted blank page at position {new_idx + 1}.", 4000
+        self._push_undo(
+            f"Insert blank page after {idx + 1}",
+            lambda: doc.insert_blank_page(after_index=idx),
         )
+        self.statusBar().showMessage("Inserted blank page.", 3000)
 
     def _on_page_changed(self, current: int, total: int) -> None:
         self._page_indicator.setText(f"{current + 1} / {total}" if total > 0 else "—")
@@ -966,19 +950,17 @@ class MainWindow(QMainWindow):
         dy = end_pdf[1] - start_pdf[1]
         if abs(dx) < 1 and abs(dy) < 1:
             return  # tiny drag, ignore
-        try:
-            anno.move_annotation(
-                doc, self._selected_annot_page, self._selected_annot_xref, dx, dy
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Move Failed", str(exc))
-            return
-        self._refresh_after_annotation()
-        # Refresh selection box at the new position
-        new_rect = anno.get_annotation_rect(
-            doc, self._selected_annot_page, self._selected_annot_xref
+        page = self._selected_annot_page
+        xref = self._selected_annot_xref
+        self._push_undo(
+            "Move annotation",
+            lambda: anno.move_annotation(doc, page, xref, dx, dy),
         )
-        self._viewer.page_canvas.set_selection_rect(new_rect)
+        # Re-find the (possibly re-xref'd after snapshot restore-redo) annot
+        # at the new center to refresh the selection box.
+        new_rect = anno.get_annotation_rect(doc, page, xref)
+        if new_rect is not None:
+            self._viewer.page_canvas.set_selection_rect(new_rect)
 
     def _on_delete_selected_annot(self) -> None:
         if (
@@ -989,22 +971,33 @@ class MainWindow(QMainWindow):
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None:
             return
-        try:
-            anno.delete_annotation(
-                doc, self._selected_annot_page, self._selected_annot_xref
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Delete Failed", str(exc))
-            return
+        xref = self._selected_annot_xref
+        page = self._selected_annot_page
         self._clear_annot_selection()
-        self._refresh_after_annotation()
+        self._push_undo(
+            "Delete annotation",
+            lambda: anno.delete_annotation(doc, page, xref),
+        )
 
     def _refresh_after_annotation(self) -> None:
-        """After a new annotation is added, re-render and update title/state."""
-        # Re-render forces PyMuPDF to bake the new /Annot into the pixmap.
+        """After any document mutation, re-render the viewer and refresh
+        thumbnails / title / action states."""
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is not None:
+            self._thumb_panel.set_document(doc)
         self._viewer.reload_current()
+        if doc is not None:
+            self._thumb_panel.select_page(self._viewer.current_page)
         self._refresh_title()
         self._update_action_states()
+
+    def _push_undo(self, label: str, apply_fn) -> None:
+        """Wrap a mutating operation as an undo-able snapshot command."""
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        cmd = SnapshotCommand(label, doc, apply_fn, self._refresh_after_annotation)
+        self._undo_stack.push(cmd)
 
     def _on_text_drag_finished(
         self, tool_value: int, pdf_rect: tuple[float, float, float, float]
@@ -1019,29 +1012,28 @@ class MainWindow(QMainWindow):
                 "No text found in selection.", 3000
             )
             return
-        try:
-            tool = ToolMode(tool_value)
-            if tool == ToolMode.HIGHLIGHT:
-                anno.add_highlight(
-                    doc, page_idx, word_rects,
-                    color=prefs_mod.parse_color(self._prefs.color_highlight),
-                )
-            elif tool == ToolMode.UNDERLINE:
-                anno.add_underline(
-                    doc, page_idx, word_rects,
-                    color=prefs_mod.parse_color(self._prefs.color_underline),
-                )
-            elif tool == ToolMode.STRIKEOUT:
-                anno.add_strikeout(
-                    doc, page_idx, word_rects,
-                    color=prefs_mod.parse_color(self._prefs.color_strikeout),
-                )
-            else:
-                return
-        except Exception as exc:
-            QMessageBox.critical(self, "Annotation Failed", str(exc))
+        tool = ToolMode(tool_value)
+        if tool == ToolMode.HIGHLIGHT:
+            apply_fn = lambda: anno.add_highlight(
+                doc, page_idx, word_rects,
+                color=prefs_mod.parse_color(self._prefs.color_highlight),
+            )
+            label = "Highlight text"
+        elif tool == ToolMode.UNDERLINE:
+            apply_fn = lambda: anno.add_underline(
+                doc, page_idx, word_rects,
+                color=prefs_mod.parse_color(self._prefs.color_underline),
+            )
+            label = "Underline text"
+        elif tool == ToolMode.STRIKEOUT:
+            apply_fn = lambda: anno.add_strikeout(
+                doc, page_idx, word_rects,
+                color=prefs_mod.parse_color(self._prefs.color_strikeout),
+            )
+            label = "Strikeout text"
+        else:
             return
-        self._refresh_after_annotation()
+        self._push_undo(label, apply_fn)
 
     def _on_canvas_clicked(
         self, tool_value: int, pdf_point: tuple[float, float]
@@ -1064,12 +1056,11 @@ class MainWindow(QMainWindow):
         )
         if not ok or not text.strip():
             return
-        try:
-            anno.add_sticky_note(doc, self._viewer.current_page, pdf_point, text)
-        except Exception as exc:
-            QMessageBox.critical(self, "Annotation Failed", str(exc))
-            return
-        self._refresh_after_annotation()
+        page_idx = self._viewer.current_page
+        self._push_undo(
+            "Add sticky note",
+            lambda: anno.add_sticky_note(doc, page_idx, pdf_point, text),
+        )
 
     def _click_hits_existing_note(self, pdf_point: tuple[float, float]) -> bool:
         doc = self._viewer._doc  # noqa: SLF001
@@ -1089,15 +1080,14 @@ class MainWindow(QMainWindow):
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None or len(stroke) < 2:
             return
-        try:
-            anno.add_ink(
-                doc, self._viewer.current_page, [stroke],
+        page_idx = self._viewer.current_page
+        self._push_undo(
+            "Pen stroke",
+            lambda: anno.add_ink(
+                doc, page_idx, [stroke],
                 color=prefs_mod.parse_color(self._prefs.color_pen),
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Annotation Failed", str(exc))
-            return
-        self._refresh_after_annotation()
+            ),
+        )
 
     def _on_rect_drag_finished(
         self, tool_value: int, pdf_rect: tuple[float, float, float, float]
@@ -1106,34 +1096,36 @@ class MainWindow(QMainWindow):
         if doc is None:
             return
         page_idx = self._viewer.current_page
-        try:
-            tool = ToolMode(tool_value)
-            if tool == ToolMode.RECT:
-                anno.add_rect(
+        tool = ToolMode(tool_value)
+        if tool == ToolMode.RECT:
+            self._push_undo(
+                "Add rectangle",
+                lambda: anno.add_rect(
                     doc, page_idx, pdf_rect,
                     color=prefs_mod.parse_color(self._prefs.color_rect),
-                )
-            elif tool == ToolMode.ELLIPSE:
-                anno.add_ellipse(
+                ),
+            )
+        elif tool == ToolMode.ELLIPSE:
+            self._push_undo(
+                "Add ellipse",
+                lambda: anno.add_ellipse(
                     doc, page_idx, pdf_rect,
                     color=prefs_mod.parse_color(self._prefs.color_ellipse),
-                )
-            elif tool == ToolMode.TEXTBOX:
-                text, ok = QInputDialog.getMultiLineText(
-                    self, "Text Box", "Text:", ""
-                )
-                if not ok or not text.strip():
-                    return
-                anno.add_text_box(
+                ),
+            )
+        elif tool == ToolMode.TEXTBOX:
+            text, ok = QInputDialog.getMultiLineText(
+                self, "Text Box", "Text:", ""
+            )
+            if not ok or not text.strip():
+                return
+            self._push_undo(
+                "Add text box",
+                lambda: anno.add_text_box(
                     doc, page_idx, pdf_rect, text,
                     color=prefs_mod.parse_color(self._prefs.color_textbox),
-                )
-            else:
-                return
-        except Exception as exc:
-            QMessageBox.critical(self, "Annotation Failed", str(exc))
-            return
-        self._refresh_after_annotation()
+                ),
+            )
 
     def _on_arrow_drag_finished(
         self,
@@ -1143,15 +1135,14 @@ class MainWindow(QMainWindow):
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None:
             return
-        try:
-            anno.add_arrow(
-                doc, self._viewer.current_page, start, end,
+        page_idx = self._viewer.current_page
+        self._push_undo(
+            "Add arrow",
+            lambda: anno.add_arrow(
+                doc, page_idx, start, end,
                 color=prefs_mod.parse_color(self._prefs.color_arrow),
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Annotation Failed", str(exc))
-            return
-        self._refresh_after_annotation()
+            ),
+        )
 
     def _on_toggle_dark_mode(self, checked: bool) -> None:
         app = QApplication.instance()

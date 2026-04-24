@@ -96,7 +96,7 @@ src/opiter/
 - [x] **B-1**: Annotation color/style options — per-tool color pickers in Preferences dialog, stored as prefs.color_*, applied on every add_*
 - [x] **B-2**: Annotation toolbar — second toolbar with every tool action (same QActionGroup so mutually exclusive with menu)
 - [x] **B-3**: Thumbnail size adjustment — slider 60-300px above the Pages list, persisted via prefs.thumbnail_width_px
-- [ ] **C-1**: Undo/Redo
+- [x] **C-1**: Undo/Redo — snapshot-based QUndoStack(undoLimit=30), Ctrl+Z / Ctrl+Y, covers every mutation (rotate/delete/insert/reorder/all annot ops)
 - [ ] **C-2**: Async thumbnails + disk caching
 - [ ] **C-3**: i18n
 - [ ] **C-4**: Encrypted PDF password prompt
