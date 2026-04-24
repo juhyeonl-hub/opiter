@@ -110,6 +110,7 @@ Polish 종료 시점에 사용자 일괄 검증 예정.
 - 주석 회전 핸들 (현재 Pointer는 move만, rotate는 미지원)
 - 주석 색상 별도 모달 / 도구 모드별 inline 옵션
 - **#19 WSLg/XCB 메뉴 ghost 잔재**: 메뉴바 빠른 호버 시 프로그램 뒤에 그래픽만 남는 XCB 플랫폼 quirk. 클릭은 안 되고 프로그램 종료 시 사라짐. Qt 레벨에서 우회 불가로 보임 — 향후 Wayland 플랫폼 전환 또는 mouse grab 리다이렉트 연구 필요
+- **#20 연속 단어 highlight 병합 + 투명도 조절**: 현재 단어별로 quad 생성 (PDF 표준). 한 줄에 연속된 단어들은 단일 quad로 합쳐서 시각적 끊김 제거. 추가로 alpha 슬라이더 (Preferences > Colors)로 투명도 사용자 지정.
 
 ---
 

@@ -15,12 +15,11 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QGroupBox,
     QHeaderView,
     QKeySequenceEdit,
     QLabel,
     QPushButton,
-    QScrollArea,
+    QTabWidget,
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -94,20 +93,16 @@ class PreferencesDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Preferences")
-        self.resize(620, 620)
+        self.resize(620, 560)
 
         outer = QVBoxLayout(self)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        host = QWidget()
-        scroll.setWidget(host)
-        layout = QVBoxLayout(host)
-        outer.addWidget(scroll, stretch=1)
+        tabs = QTabWidget()
+        outer.addWidget(tabs, stretch=1)
 
-        # ----- Keymap group -----
-        keymap_group = QGroupBox("Keyboard Shortcuts")
-        kg_layout = QVBoxLayout(keymap_group)
-        kg_layout.addWidget(
+        # ----- Tab 1: Keyboard Shortcuts -----
+        kb_tab = QWidget()
+        kb_layout = QVBoxLayout(kb_tab)
+        kb_layout.addWidget(
             QLabel(
                 "Click in the override cell and press the key combination you want. "
                 "Leave blank to use the default."
@@ -134,22 +129,29 @@ class PreferencesDialog(QDialog):
             self._tree.setItemWidget(item, 2, edit)
             self._editors[entry.action_id] = edit
 
-        kg_layout.addWidget(self._tree)
+        kb_layout.addWidget(self._tree, stretch=1)
         reset_btn = QPushButton("Reset All Shortcuts to Defaults")
         reset_btn.clicked.connect(self._reset_shortcuts)
-        kg_layout.addWidget(reset_btn)
-        layout.addWidget(keymap_group)
+        kb_layout.addWidget(reset_btn)
+        tabs.addTab(kb_tab, "Keyboard")
 
-        # ----- Colors group -----
-        color_group = QGroupBox("Annotation Colors")
-        cg_form = QFormLayout(color_group)
+        # ----- Tab 2: Annotation Colors -----
+        col_tab = QWidget()
+        col_layout = QVBoxLayout(col_tab)
+        col_layout.addWidget(
+            QLabel("Click a swatch to pick a new color for that annotation type.")
+        )
+        form_host = QWidget()
+        cg_form = QFormLayout(form_host)
         self._color_buttons: dict[str, _ColorButton] = {}
         for entry in color_entries:
             initial = current_colors.get(entry.pref_field, (0.0, 0.0, 0.0))
             btn = _ColorButton(initial)
             self._color_buttons[entry.pref_field] = btn
             cg_form.addRow(entry.display_name, btn)
-        layout.addWidget(color_group)
+        col_layout.addWidget(form_host)
+        col_layout.addStretch(1)
+        tabs.addTab(col_tab, "Colors")
 
         # ----- Buttons -----
         buttons = QDialogButtonBox(

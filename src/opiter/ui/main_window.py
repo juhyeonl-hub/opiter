@@ -975,11 +975,18 @@ class MainWindow(QMainWindow):
             "Move annotation",
             lambda: anno.move_annotation(doc, page, xref, dx, dy),
         )
-        # Re-find the (possibly re-xref'd after snapshot restore-redo) annot
-        # at the new center to refresh the selection box.
-        new_rect = anno.get_annotation_rect(doc, page, xref)
-        if new_rect is not None:
+        # After the move the annotation's xref may have changed (ink annots
+        # get deleted and recreated because PyMuPDF refuses set_rect on them).
+        # Re-acquire the selection by hit-testing at the drag end point,
+        # which is guaranteed to fall inside the moved bbox.
+        new_xref = anno.find_annotation_at(doc, page, end_pdf)
+        if new_xref is not None:
+            self._selected_annot_xref = new_xref
+            new_rect = anno.get_annotation_rect(doc, page, new_xref)
             self._viewer.page_canvas.set_selection_rect(new_rect)
+        else:
+            # Couldn't re-find it — safer to clear than leave a stale box.
+            self._clear_annot_selection()
 
     def _on_delete_selected_annot(self) -> None:
         if (
