@@ -469,12 +469,10 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid Page Range", str(exc))
             return
-        out_dir = QFileDialog.getExistingDirectory(
-            self,
-            "Choose Output Directory",
-            str(doc.path.parent),
+        out_dir = self._prompt_output_directory(
+            f"{doc.path.stem}_split", "Split Output Directory"
         )
-        if not out_dir:
+        if out_dir is None:
             return
         try:
             written = split_by_groups(doc, groups, out_dir, doc.path.stem)
@@ -491,12 +489,10 @@ class MainWindow(QMainWindow):
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None:
             return
-        out_dir = QFileDialog.getExistingDirectory(
-            self,
-            "Choose Output Directory",
-            str(doc.path.parent),
+        out_dir = self._prompt_output_directory(
+            f"{doc.path.stem}_pages", "Per-Page Output Directory"
         )
-        if not out_dir:
+        if out_dir is None:
             return
         try:
             written = split_per_page(doc, out_dir, doc.path.stem)
@@ -508,6 +504,39 @@ class MainWindow(QMainWindow):
             "Split Complete",
             f"Wrote {len(written)} file(s) (one per page) to:\n{out_dir}",
         )
+
+    def _prompt_output_directory(
+        self, default_name: str, dialog_title: str
+    ) -> str | None:
+        """Ask the user for an output directory; create it if missing.
+
+        Avoids QFileDialog.getExistingDirectory because that only allows
+        selecting existing folders (the Choose button stays disabled when
+        the user types a non-existent name) — the Qt "Create New Folder"
+        button is too easy to miss.
+
+        Returns the absolute path string, or ``None`` if the user
+        cancelled or directory creation failed.
+        """
+        doc = self._viewer._doc  # noqa: SLF001
+        suggested = (
+            str(doc.path.parent / default_name) if doc is not None else default_name
+        )
+        out_str, ok = QInputDialog.getText(
+            self,
+            dialog_title,
+            "Output directory (will be created if missing):",
+            text=suggested,
+        )
+        if not ok or not out_str.strip():
+            return None
+        out_path = Path(out_str.strip()).expanduser()
+        try:
+            out_path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.critical(self, "Cannot Create Directory", str(exc))
+            return None
+        return str(out_path)
 
     def _on_insert_blank_page(self) -> None:
         doc = self._viewer._doc  # noqa: SLF001
