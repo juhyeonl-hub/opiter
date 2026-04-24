@@ -23,7 +23,11 @@ from PySide6.QtWidgets import (
 from opiter import __version__
 from opiter.core import annotations as anno
 from opiter.core import preferences as prefs_mod
+from opiter.core.compression import compress_pdf
 from opiter.core.document import Document
+from opiter.core.image_export import export_pages_as_images
+from opiter.core.image_to_pdf import images_to_pdf
+from opiter.core.metadata import read_metadata, write_metadata
 from opiter.core.page_ops import (
     extract_pages,
     merge_pdfs,
@@ -34,13 +38,18 @@ from opiter.core.page_ops import (
 )
 from opiter.core.preferences import Preferences
 from opiter.core.search import SearchMatch, search
+from opiter.core.toc import read_toc, write_toc
 from opiter.core.undo import SnapshotCommand
+from opiter.core.watermark import add_text_watermark
+from opiter.ui.bookmarks_panel import BookmarksPanel
+from opiter.ui.metadata_dialog import MetadataDialog
 from opiter.ui.page_canvas import ToolMode
 from opiter.ui.preferences_dialog import ColorEntry, KeymapEntry, PreferencesDialog
 from opiter.ui.search_bar import SearchBar
 from opiter.ui.theme import apply_dark, apply_light
 from opiter.ui.thumbnail_panel import ThumbnailPanel
 from opiter.ui.viewer_widget import ViewerWidget
+from opiter.ui.watermark_dialog import WatermarkDialog
 from opiter.utils.errors import CorruptedPDFError, EncryptedPDFError
 
 
@@ -126,6 +135,19 @@ class MainWindow(QMainWindow):
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._thumb_dock)
+
+        # Bookmarks dock (Phase 4: 9-6)
+        self._bookmarks_panel = BookmarksPanel(self)
+        self._bookmarks_panel.page_jump_requested.connect(self._viewer.goto_page)
+        self._bookmarks_panel.toc_changed.connect(self._on_toc_changed)
+        self._bookmarks_dock = QDockWidget("Bookmarks", self)
+        self._bookmarks_dock.setObjectName("BookmarksDock")
+        self._bookmarks_dock.setWidget(self._bookmarks_panel)
+        self._bookmarks_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._bookmarks_dock)
+        self._bookmarks_dock.hide()  # hidden by default; toggle via View menu
 
         self._page_indicator = QLabel("—")
         self._page_indicator.setMinimumWidth(80)
@@ -238,6 +260,10 @@ class MainWindow(QMainWindow):
         self._action_toggle_thumbs.setText("Show &Thumbnails")
         self._action_toggle_thumbs.setShortcut(QKeySequence(Qt.Key.Key_F4))
 
+        self._action_toggle_bookmarks = self._bookmarks_dock.toggleViewAction()
+        self._action_toggle_bookmarks.setText("Show &Bookmarks")
+        self._action_toggle_bookmarks.setShortcut(QKeySequence(Qt.Key.Key_F5))
+
         self._action_dark_mode = QAction("&Dark Mode", self)
         self._action_dark_mode.setCheckable(True)
         self._action_dark_mode.setShortcut(QKeySequence("Ctrl+Shift+D"))
@@ -266,6 +292,22 @@ class MainWindow(QMainWindow):
         self._action_preferences = QAction("&Preferences…", self)
         self._action_preferences.setShortcut(QKeySequence("Ctrl+,"))
         self._action_preferences.triggered.connect(self._on_preferences)
+
+        # Phase 4: advanced PDF features
+        self._action_export_images = QAction("Export Pages as &Images…", self)
+        self._action_export_images.triggered.connect(self._on_export_images)
+
+        self._action_images_to_pdf = QAction("Create PDF from I&mages…", self)
+        self._action_images_to_pdf.triggered.connect(self._on_images_to_pdf)
+
+        self._action_compress = QAction("Save &Compressed Copy…", self)
+        self._action_compress.triggered.connect(self._on_compress)
+
+        self._action_watermark = QAction("Add &Watermark…", self)
+        self._action_watermark.triggered.connect(self._on_watermark)
+
+        self._action_metadata = QAction("Document &Properties…", self)
+        self._action_metadata.triggered.connect(self._on_metadata)
 
         # Undo / Redo come from the stack so their text auto-includes the
         # command label, and they enable/disable correctly.
@@ -348,6 +390,12 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self._action_save)
         file_menu.addAction(self._action_save_as)
+        file_menu.addAction(self._action_compress)
+        file_menu.addSeparator()
+        file_menu.addAction(self._action_export_images)
+        file_menu.addAction(self._action_images_to_pdf)
+        file_menu.addSeparator()
+        file_menu.addAction(self._action_metadata)
         file_menu.addSeparator()
         file_menu.addAction(self._action_quit)
 
@@ -371,6 +419,8 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._action_split_ranges)
         edit_menu.addAction(self._action_split_per_page)
         edit_menu.addAction(self._action_merge)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self._action_watermark)
 
         view_menu = menubar.addMenu("&View")
         view_menu.addAction(self._action_prev)
@@ -387,6 +437,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._action_fit_width)
         view_menu.addSeparator()
         view_menu.addAction(self._action_toggle_thumbs)
+        view_menu.addAction(self._action_toggle_bookmarks)
         view_menu.addAction(self._action_dark_mode)
 
         annotate_menu = menubar.addMenu("&Annotate")
@@ -507,6 +558,7 @@ class MainWindow(QMainWindow):
         self._reset_search_state()
         self._clear_annot_selection()
         self._undo_stack.clear()
+        self._refresh_bookmarks_panel()
         self._refresh_title()
         self._update_action_states()
         # Update recent files (front of MRU) and refresh submenu
@@ -1007,13 +1059,14 @@ class MainWindow(QMainWindow):
 
     def _refresh_after_annotation(self) -> None:
         """After any document mutation, re-render the viewer and refresh
-        thumbnails / title / action states."""
+        thumbnails / title / action states / bookmarks panel."""
         doc = self._viewer._doc  # noqa: SLF001
         if doc is not None:
             self._thumb_panel.set_document(doc)
         self._viewer.reload_current()
         if doc is not None:
             self._thumb_panel.select_page(self._viewer.current_page)
+        self._refresh_bookmarks_panel()
         self._refresh_title()
         self._update_action_states()
 
@@ -1170,6 +1223,156 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    # =============================================================== Phase 4
+    def _on_export_images(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        spec, ok = QInputDialog.getText(
+            self,
+            "Export Pages as Images",
+            f"Pages (1 – {doc.page_count}, e.g. 1-3,5):",
+            text=f"1-{doc.page_count}",
+        )
+        if not ok or not spec.strip():
+            return
+        try:
+            indices = parse_page_range_spec(spec, doc.page_count)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid Page Range", str(exc))
+            return
+        fmt, ok = QInputDialog.getItem(
+            self, "Image Format", "Format:", ["png", "jpg"], 0, False
+        )
+        if not ok:
+            return
+        out_dir = self._prompt_output_directory(
+            f"{doc.path.stem}_images", "Image Export Directory"
+        )
+        if out_dir is None:
+            return
+        try:
+            paths = export_pages_as_images(
+                doc, indices, out_dir, doc.path.stem, fmt=fmt  # type: ignore[arg-type]
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Failed", str(exc))
+            return
+        QMessageBox.information(
+            self, "Export Complete",
+            f"Wrote {len(paths)} image(s) to:\n{out_dir}",
+        )
+
+    def _on_images_to_pdf(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Images (order preserved)",
+            str(Path.home()),
+            "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff);;All files (*)",
+        )
+        if not paths:
+            return
+        default_out = str(Path(paths[0]).parent / "images.pdf")
+        out_str, _ = QFileDialog.getSaveFileName(
+            self, "Save New PDF", default_out, "PDF files (*.pdf)"
+        )
+        if not out_str:
+            return
+        try:
+            out = images_to_pdf(paths, out_str)
+        except Exception as exc:
+            QMessageBox.critical(self, "Conversion Failed", str(exc))
+            return
+        QMessageBox.information(
+            self, "PDF Created",
+            f"Combined {len(paths)} image(s) into:\n{out}",
+        )
+
+    def _on_compress(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        quality, ok = QInputDialog.getItem(
+            self, "Compression Quality",
+            "Preset (Low = smallest / High = best quality):",
+            ["low", "medium", "high"], 1, False,
+        )
+        if not ok:
+            return
+        default_out = str(doc.path.with_name(f"{doc.path.stem}_compressed.pdf"))
+        out_str, _ = QFileDialog.getSaveFileName(
+            self, "Save Compressed Copy", default_out, "PDF files (*.pdf)"
+        )
+        if not out_str:
+            return
+        try:
+            compress_pdf(doc, out_str, quality=quality)  # type: ignore[arg-type]
+        except Exception as exc:
+            QMessageBox.critical(self, "Compression Failed", str(exc))
+            return
+        original = doc.path.stat().st_size if doc.path.exists() else 0
+        compressed = Path(out_str).stat().st_size
+        pct = (1 - compressed / original) * 100 if original else 0
+        self.statusBar().showMessage(
+            f"Compressed: {original/1024:.0f} KB → {compressed/1024:.0f} KB "
+            f"({pct:.1f}% reduction)",
+            6000,
+        )
+
+    def _on_watermark(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        dlg = WatermarkDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        s = dlg.settings()
+        if not s.text:
+            return
+        self._push_undo(
+            "Add watermark",
+            lambda: add_text_watermark(
+                doc, s.text,
+                fontsize=s.fontsize,
+                opacity=s.opacity,
+                rotate=s.rotate,
+            ),
+        )
+
+    def _on_metadata(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        current = read_metadata(doc)
+        dlg = MetadataDialog(current, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_md = dlg.get_metadata()
+        self._push_undo(
+            "Edit document properties",
+            lambda: write_metadata(doc, new_md),
+        )
+
+    def _on_toc_changed(self, entries: list) -> None:
+        """BookmarksPanel → apply new TOC to the document."""
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        self._push_undo(
+            "Edit bookmarks",
+            lambda: write_toc(doc, entries),
+        )
+
+    def _refresh_bookmarks_panel(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            self._bookmarks_panel.clear()
+            return
+        self._bookmarks_panel.set_page_context(
+            self._viewer.current_page, doc.page_count
+        )
+        self._bookmarks_panel.set_toc(read_toc(doc))
+
     def _on_toggle_dark_mode(self, checked: bool) -> None:
         app = QApplication.instance()
         if app is None:
@@ -1223,6 +1426,10 @@ class MainWindow(QMainWindow):
             self._action_tool_ellipse,
             self._action_tool_arrow,
             self._action_tool_textbox,
+            self._action_export_images,
+            self._action_compress,
+            self._action_watermark,
+            self._action_metadata,
         ):
             act.setEnabled(has_doc)
         doc = self._viewer._doc  # noqa: SLF001
