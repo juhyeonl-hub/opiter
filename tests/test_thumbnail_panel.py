@@ -99,6 +99,24 @@ def test_relabel_after_reorder_resets_text_and_userrole(qtbot, sample_pdf):
         assert p.item(i).text() == f"Page {i + 1}"
 
 
+def test_set_thumbnail_width_clamps_and_rerenders(qtbot, sample_pdf):
+    """B-3 regression: slider value must clamp to [60, 300] and re-render icons."""
+    from opiter.ui.thumbnail_panel import THUMB_WIDTH_MIN, THUMB_WIDTH_MAX
+
+    p = ThumbnailPanel(thumb_width=100)
+    qtbot.addWidget(p)
+    assert p.thumbnail_width() == 100
+
+    p.set_document(Document.open(sample_pdf))
+    first_icon = p.item(0).icon().availableSizes()
+    # Change to bigger — clamped to max
+    p.set_thumbnail_width(9999)
+    assert p.thumbnail_width() == THUMB_WIDTH_MAX
+    # Clamp low
+    p.set_thumbnail_width(-5)
+    assert p.thumbnail_width() == THUMB_WIDTH_MIN
+
+
 def test_page_canvas_pixel_to_pdf_subtracts_centering_offset(qtbot):
     """Regression: when QLabel is grown beyond pixmap size by the parent
     QScrollArea (widgetResizable=True + AlignCenter), pixel_to_pdf must

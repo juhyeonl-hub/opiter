@@ -101,6 +101,26 @@ def test_prune_missing_recent_files(tmp_path):
     assert p.recent_files[0] == str(real)
 
 
+def test_parse_color_basic():
+    assert prefs_mod.parse_color("1,0,0") == (1.0, 0.0, 0.0)
+    assert prefs_mod.parse_color("0.5,0.5,0.5") == (0.5, 0.5, 0.5)
+
+
+def test_parse_color_clamps_out_of_range():
+    assert prefs_mod.parse_color("2.0,-1.0,0.5") == (1.0, 0.0, 0.5)
+
+
+def test_parse_color_returns_black_on_malformed():
+    assert prefs_mod.parse_color("garbage") == (0.0, 0.0, 0.0)
+    assert prefs_mod.parse_color("1,2") == (0.0, 0.0, 0.0)
+    assert prefs_mod.parse_color("") == (0.0, 0.0, 0.0)
+
+
+def test_format_color_round_trip():
+    rgb = (0.25, 0.5, 0.75)
+    assert prefs_mod.parse_color(prefs_mod.format_color(rgb)) == rgb
+
+
 def test_save_is_atomic_via_temp_file(tmp_path):
     """On successful save there must be no lingering .tmp sibling."""
     p = Preferences()

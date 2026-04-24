@@ -93,9 +93,9 @@ src/opiter/
 - [x] **A-2**: Recent files menu — File > Open Recent, max 10, auto-prune missing, Clear Recent
 - [x] **A-3**: Annotation edit/delete + Pointer tool — click-to-select w/ dashed bbox, Delete key, drag inside box to move
 - [x] **A-4**: Custom keymapping — Edit > Preferences (Ctrl+,), QKeySequenceEdit per action, persisted in prefs.keymap, Reset All
-- [ ] **B-1**: Annotation color/style options
-- [ ] **B-2**: Annotation toolbar
-- [ ] **B-3**: Thumbnail size adjustment
+- [x] **B-1**: Annotation color/style options — per-tool color pickers in Preferences dialog, stored as prefs.color_*, applied on every add_*
+- [x] **B-2**: Annotation toolbar — second toolbar with every tool action (same QActionGroup so mutually exclusive with menu)
+- [x] **B-3**: Thumbnail size adjustment — slider 60-300px above the Pages list, persisted via prefs.thumbnail_width_px
 - [ ] **C-1**: Undo/Redo
 - [ ] **C-2**: Async thumbnails + disk caching
 - [ ] **C-3**: i18n

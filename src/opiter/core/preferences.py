@@ -49,6 +49,22 @@ class Preferences:
 _MAX_RECENT = 10
 
 
+def parse_color(s: str) -> tuple[float, float, float]:
+    """Parse a ``"r,g,b"`` string of 0..1 floats into a 3-tuple. Lenient: clamp
+    each channel; default to (0,0,0) on malformed input."""
+    try:
+        parts = [float(p.strip()) for p in s.split(",")]
+        if len(parts) != 3:
+            return (0.0, 0.0, 0.0)
+        return tuple(max(0.0, min(1.0, v)) for v in parts)  # type: ignore[return-value]
+    except ValueError:
+        return (0.0, 0.0, 0.0)
+
+
+def format_color(rgb: tuple[float, float, float]) -> str:
+    return f"{rgb[0]},{rgb[1]},{rgb[2]}"
+
+
 def load() -> Preferences:
     """Load preferences from disk; return defaults on any error."""
     path = preferences_path()

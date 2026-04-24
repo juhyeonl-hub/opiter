@@ -14,6 +14,8 @@ from opiter.core.document import Document
 from opiter.core.renderer import render_page
 
 THUMB_WIDTH_PX = 140
+THUMB_WIDTH_MIN = 60
+THUMB_WIDTH_MAX = 300
 
 
 class ThumbnailPanel(QListWidget):
@@ -26,9 +28,12 @@ class ThumbnailPanel(QListWidget):
     """List of original page indices in their new visual order, after a
     drag-drop. The handler should apply this to the document model."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, thumb_width: int = THUMB_WIDTH_PX
+    ) -> None:
         super().__init__(parent)
-        self.setIconSize(QSize(THUMB_WIDTH_PX, int(THUMB_WIDTH_PX * 1.5)))
+        self._thumb_width: int = thumb_width
+        self.setIconSize(QSize(self._thumb_width, int(self._thumb_width * 1.5)))
         self.setSpacing(6)
         self.setUniformItemSizes(False)
         self.itemClicked.connect(self._on_item_activated)
@@ -47,11 +52,30 @@ class ThumbnailPanel(QListWidget):
     def set_document(self, doc: Document) -> None:
         """Render thumbnails for every page in *doc* and replace the list contents."""
         self.clear()
+        self._current_doc = doc
         for i in range(doc.page_count):
             pixmap = self._render_thumbnail(doc, i)
             item = QListWidgetItem(QIcon(pixmap), f"Page {i + 1}")
             item.setData(Qt.ItemDataRole.UserRole, i)
             self.addItem(item)
+
+    def set_thumbnail_width(self, width: int) -> None:
+        """Change the thumbnail width (px, clamped to min/max) and re-render."""
+        clamped = max(THUMB_WIDTH_MIN, min(THUMB_WIDTH_MAX, int(width)))
+        if clamped == self._thumb_width:
+            return
+        self._thumb_width = clamped
+        self.setIconSize(QSize(self._thumb_width, int(self._thumb_width * 1.5)))
+        # Re-render if we have a doc
+        doc = getattr(self, "_current_doc", None)
+        if doc is not None:
+            current_row = self.currentRow()
+            self.set_document(doc)
+            if current_row >= 0:
+                self.select_page(current_row)
+
+    def thumbnail_width(self) -> int:
+        return self._thumb_width
 
     def select_page(self, index: int) -> None:
         """Highlight the row matching *index* (0-based) without emitting page_clicked."""
@@ -74,10 +98,9 @@ class ThumbnailPanel(QListWidget):
             item.setData(Qt.ItemDataRole.UserRole, i)
 
     # --------------------------------------------------------------- helpers
-    @staticmethod
-    def _render_thumbnail(doc: Document, page_index: int) -> QPixmap:
+    def _render_thumbnail(self, doc: Document, page_index: int) -> QPixmap:
         page_w, _ = doc.page_size(page_index)
-        zoom = (THUMB_WIDTH_PX / page_w) if page_w > 0 else 0.2
+        zoom = (self._thumb_width / page_w) if page_w > 0 else 0.2
         rp = render_page(doc, page_index, zoom=zoom)
         image = QImage(
             rp.samples, rp.width, rp.height, rp.stride, QImage.Format.Format_RGB888

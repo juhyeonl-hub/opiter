@@ -1,22 +1,27 @@
-"""Preferences dialog — currently focused on keyboard shortcut customization.
+"""Preferences dialog — keymap + annotation colors.
 
-Future tabs (annotation colors, theme, etc.) will hang off the same
-dialog. The dialog is purely UI; persistence lives in
-``opiter.core.preferences``.
+Persistence lives in :mod:`opiter.core.preferences`; this module is
+purely UI. The dialog has two sections (collapsible groups) inside a
+single scrollable layout.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (
+    QColorDialog,
     QDialog,
     QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
     QHeaderView,
     QKeySequenceEdit,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -28,31 +33,76 @@ from PySide6.QtWidgets import (
 class KeymapEntry:
     action_id: str
     display_name: str
-    default_shortcut: str  # human-readable form, e.g. "Ctrl+O" or "" for unbound
+    default_shortcut: str  # human-readable, "" for unbound
+
+
+@dataclass(frozen=True)
+class ColorEntry:
+    pref_field: str    # name of the Preferences field (e.g. "color_highlight")
+    display_name: str  # "Highlight"
+
+
+class _ColorButton(QToolButton):
+    """A small button whose face is filled with the current color."""
+
+    def __init__(self, initial: tuple[float, float, float], parent=None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(60, 22)
+        self._rgb = initial
+        self._refresh()
+        self.clicked.connect(self._pick)
+
+    def color(self) -> tuple[float, float, float]:
+        return self._rgb
+
+    def _refresh(self) -> None:
+        r, g, b = (int(c * 255) for c in self._rgb)
+        self.setStyleSheet(
+            f"background-color: rgb({r},{g},{b}); border: 1px solid #888;"
+        )
+
+    def _pick(self) -> None:
+        r, g, b = (int(c * 255) for c in self._rgb)
+        chosen = QColorDialog.getColor(
+            QColor(r, g, b), self, "Pick a color"
+        )
+        if chosen.isValid():
+            self._rgb = (chosen.redF(), chosen.greenF(), chosen.blueF())
+            self._refresh()
 
 
 class PreferencesDialog(QDialog):
-    """Edit per-action keyboard shortcut overrides."""
+    """Edit per-action shortcuts and per-tool annotation colors."""
 
     def __init__(
         self,
         registry: list[KeymapEntry],
         current_overrides: dict[str, str],
+        color_entries: list[ColorEntry],
+        current_colors: dict[str, tuple[float, float, float]],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Preferences — Keyboard Shortcuts")
-        self.resize(560, 480)
+        self.setWindowTitle("Preferences")
+        self.resize(620, 620)
 
-        layout = QVBoxLayout(self)
-        layout.addWidget(
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        host = QWidget()
+        scroll.setWidget(host)
+        layout = QVBoxLayout(host)
+        outer.addWidget(scroll, stretch=1)
+
+        # ----- Keymap group -----
+        keymap_group = QGroupBox("Keyboard Shortcuts")
+        kg_layout = QVBoxLayout(keymap_group)
+        kg_layout.addWidget(
             QLabel(
-                "Customize keyboard shortcuts. Leave the override field empty "
-                "to use the default. Click in the override cell and press the "
-                "key combination you want."
+                "Click in the override cell and press the key combination you want. "
+                "Leave blank to use the default."
             )
         )
-
         self._tree = QTreeWidget()
         self._tree.setColumnCount(3)
         self._tree.setHeaderLabels(["Action", "Default", "Override"])
@@ -68,36 +118,49 @@ class PreferencesDialog(QDialog):
             )
             self._tree.addTopLevelItem(item)
             edit = QKeySequenceEdit(self._tree)
-            override_str = current_overrides.get(entry.action_id, "")
-            if override_str:
-                edit.setKeySequence(QKeySequence(override_str))
+            override = current_overrides.get(entry.action_id, "")
+            if override:
+                edit.setKeySequence(QKeySequence(override))
             self._tree.setItemWidget(item, 2, edit)
             self._editors[entry.action_id] = edit
 
-        layout.addWidget(self._tree, stretch=1)
+        kg_layout.addWidget(self._tree)
+        reset_btn = QPushButton("Reset All Shortcuts to Defaults")
+        reset_btn.clicked.connect(self._reset_shortcuts)
+        kg_layout.addWidget(reset_btn)
+        layout.addWidget(keymap_group)
 
-        # Reset-to-defaults clears every override.
-        reset_btn = QPushButton("Reset All to Defaults")
-        reset_btn.clicked.connect(self._reset_all)
-        layout.addWidget(reset_btn)
+        # ----- Colors group -----
+        color_group = QGroupBox("Annotation Colors")
+        cg_form = QFormLayout(color_group)
+        self._color_buttons: dict[str, _ColorButton] = {}
+        for entry in color_entries:
+            initial = current_colors.get(entry.pref_field, (0.0, 0.0, 0.0))
+            btn = _ColorButton(initial)
+            self._color_buttons[entry.pref_field] = btn
+            cg_form.addRow(entry.display_name, btn)
+        layout.addWidget(color_group)
 
+        # ----- Buttons -----
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        outer.addWidget(buttons)
 
-    def _reset_all(self) -> None:
+    def _reset_shortcuts(self) -> None:
         for editor in self._editors.values():
             editor.clear()
 
     def get_overrides(self) -> dict[str, str]:
-        """Return only non-empty overrides; empty entries fall back to defaults."""
         result: dict[str, str] = {}
         for action_id, editor in self._editors.items():
             seq = editor.keySequence()
             if not seq.isEmpty():
                 result[action_id] = seq.toString()
         return result
+
+    def get_colors(self) -> dict[str, tuple[float, float, float]]:
+        return {fname: btn.color() for fname, btn in self._color_buttons.items()}

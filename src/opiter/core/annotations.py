@@ -59,27 +59,48 @@ def _to_unrotated_quad(page: fitz.Page, r: Rect) -> fitz.Quad:
 
 
 # ------------------------------------------------------------ text marking
-def add_highlight(doc: Document, page_index: int, rects: Sequence[Rect]) -> None:
-    """Yellow highlight covering each rect (typically one per word)."""
+def add_highlight(
+    doc: Document,
+    page_index: int,
+    rects: Sequence[Rect],
+    color: RGB | None = None,
+) -> None:
+    """Highlight each rect (yellow if no color given)."""
     page = doc.page(page_index)
     quads = [_to_unrotated_quad(page, r) for r in rects]
     annot = page.add_highlight_annot(quads)
+    if color is not None:
+        annot.set_colors(stroke=color)
     annot.update()
     doc.mark_modified()
 
 
-def add_underline(doc: Document, page_index: int, rects: Sequence[Rect]) -> None:
+def add_underline(
+    doc: Document,
+    page_index: int,
+    rects: Sequence[Rect],
+    color: RGB | None = None,
+) -> None:
     page = doc.page(page_index)
     quads = [_to_unrotated_quad(page, r) for r in rects]
     annot = page.add_underline_annot(quads)
+    if color is not None:
+        annot.set_colors(stroke=color)
     annot.update()
     doc.mark_modified()
 
 
-def add_strikeout(doc: Document, page_index: int, rects: Sequence[Rect]) -> None:
+def add_strikeout(
+    doc: Document,
+    page_index: int,
+    rects: Sequence[Rect],
+    color: RGB | None = None,
+) -> None:
     page = doc.page(page_index)
     quads = [_to_unrotated_quad(page, r) for r in rects]
     annot = page.add_strikeout_annot(quads)
+    if color is not None:
+        annot.set_colors(stroke=color)
     annot.update()
     doc.mark_modified()
 

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -33,7 +34,7 @@ from opiter.core.page_ops import (
 from opiter.core.preferences import Preferences
 from opiter.core.search import SearchMatch, search
 from opiter.ui.page_canvas import ToolMode
-from opiter.ui.preferences_dialog import KeymapEntry, PreferencesDialog
+from opiter.ui.preferences_dialog import ColorEntry, KeymapEntry, PreferencesDialog
 from opiter.ui.search_bar import SearchBar
 from opiter.ui.theme import apply_dark, apply_light
 from opiter.ui.thumbnail_panel import ThumbnailPanel
@@ -88,16 +89,33 @@ class MainWindow(QMainWindow):
         self._selected_annot_xref: int | None = None
         self._selected_annot_page: int | None = None
 
-        self._thumb_panel = ThumbnailPanel(self)
+        self._thumb_panel = ThumbnailPanel(
+            self, thumb_width=self._prefs.thumbnail_width_px
+        )
         self._thumb_panel.page_clicked.connect(self._viewer.goto_page)
         self._thumb_panel.pages_reordered.connect(self._on_pages_reordered)
         self._viewer.page_changed.connect(
             lambda current, _total: self._thumb_panel.select_page(current)
         )
 
+        # Thumbnail size slider sits above the list in the dock container.
+        self._thumb_size_slider = QSlider(Qt.Orientation.Horizontal)
+        from opiter.ui.thumbnail_panel import THUMB_WIDTH_MIN, THUMB_WIDTH_MAX
+        self._thumb_size_slider.setRange(THUMB_WIDTH_MIN, THUMB_WIDTH_MAX)
+        self._thumb_size_slider.setValue(self._prefs.thumbnail_width_px)
+        self._thumb_size_slider.setToolTip("Thumbnail size")
+        self._thumb_size_slider.valueChanged.connect(self._on_thumb_size_changed)
+
+        _dock_container = QWidget(self)
+        _dock_layout = QVBoxLayout(_dock_container)
+        _dock_layout.setContentsMargins(4, 4, 4, 4)
+        _dock_layout.setSpacing(4)
+        _dock_layout.addWidget(self._thumb_size_slider)
+        _dock_layout.addWidget(self._thumb_panel, stretch=1)
+
         self._thumb_dock = QDockWidget("Pages", self)
         self._thumb_dock.setObjectName("ThumbnailsDock")
-        self._thumb_dock.setWidget(self._thumb_panel)
+        self._thumb_dock.setWidget(_dock_container)
         self._thumb_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )
@@ -376,6 +394,7 @@ class MainWindow(QMainWindow):
 
     def _build_toolbar(self) -> None:
         toolbar = self.addToolBar("Main")
+        toolbar.setObjectName("MainToolbar")
         toolbar.setMovable(False)
         toolbar.addAction(self._action_open)
         toolbar.addSeparator()
@@ -386,6 +405,28 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._action_zoom_out)
         toolbar.addWidget(self._zoom_indicator)
         toolbar.addAction(self._action_zoom_in)
+
+        # Annotation tools get their own toolbar below the main one.
+        anno_toolbar = self.addToolBar("Annotate")
+        anno_toolbar.setObjectName("AnnotateToolbar")
+        anno_toolbar.setMovable(True)
+        anno_toolbar.addAction(self._action_tool_none)
+        anno_toolbar.addAction(self._action_tool_pointer)
+        anno_toolbar.addSeparator()
+        anno_toolbar.addAction(self._action_tool_highlight)
+        anno_toolbar.addAction(self._action_tool_underline)
+        anno_toolbar.addAction(self._action_tool_strikeout)
+        anno_toolbar.addSeparator()
+        anno_toolbar.addAction(self._action_tool_note)
+        anno_toolbar.addAction(self._action_tool_pen)
+        anno_toolbar.addSeparator()
+        anno_toolbar.addAction(self._action_tool_rect)
+        anno_toolbar.addAction(self._action_tool_ellipse)
+        anno_toolbar.addAction(self._action_tool_arrow)
+        anno_toolbar.addAction(self._action_tool_textbox)
+        anno_toolbar.addSeparator()
+        anno_toolbar.addAction(self._action_delete_selected_annot)
+        self._anno_toolbar = anno_toolbar
 
     # ----------------------------------------------------------------- slots
     def _on_open(self) -> None:
@@ -981,11 +1022,20 @@ class MainWindow(QMainWindow):
         try:
             tool = ToolMode(tool_value)
             if tool == ToolMode.HIGHLIGHT:
-                anno.add_highlight(doc, page_idx, word_rects)
+                anno.add_highlight(
+                    doc, page_idx, word_rects,
+                    color=prefs_mod.parse_color(self._prefs.color_highlight),
+                )
             elif tool == ToolMode.UNDERLINE:
-                anno.add_underline(doc, page_idx, word_rects)
+                anno.add_underline(
+                    doc, page_idx, word_rects,
+                    color=prefs_mod.parse_color(self._prefs.color_underline),
+                )
             elif tool == ToolMode.STRIKEOUT:
-                anno.add_strikeout(doc, page_idx, word_rects)
+                anno.add_strikeout(
+                    doc, page_idx, word_rects,
+                    color=prefs_mod.parse_color(self._prefs.color_strikeout),
+                )
             else:
                 return
         except Exception as exc:
@@ -1040,7 +1090,10 @@ class MainWindow(QMainWindow):
         if doc is None or len(stroke) < 2:
             return
         try:
-            anno.add_ink(doc, self._viewer.current_page, [stroke])
+            anno.add_ink(
+                doc, self._viewer.current_page, [stroke],
+                color=prefs_mod.parse_color(self._prefs.color_pen),
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Annotation Failed", str(exc))
             return
@@ -1056,16 +1109,25 @@ class MainWindow(QMainWindow):
         try:
             tool = ToolMode(tool_value)
             if tool == ToolMode.RECT:
-                anno.add_rect(doc, page_idx, pdf_rect)
+                anno.add_rect(
+                    doc, page_idx, pdf_rect,
+                    color=prefs_mod.parse_color(self._prefs.color_rect),
+                )
             elif tool == ToolMode.ELLIPSE:
-                anno.add_ellipse(doc, page_idx, pdf_rect)
+                anno.add_ellipse(
+                    doc, page_idx, pdf_rect,
+                    color=prefs_mod.parse_color(self._prefs.color_ellipse),
+                )
             elif tool == ToolMode.TEXTBOX:
                 text, ok = QInputDialog.getMultiLineText(
                     self, "Text Box", "Text:", ""
                 )
                 if not ok or not text.strip():
                     return
-                anno.add_text_box(doc, page_idx, pdf_rect, text)
+                anno.add_text_box(
+                    doc, page_idx, pdf_rect, text,
+                    color=prefs_mod.parse_color(self._prefs.color_textbox),
+                )
             else:
                 return
         except Exception as exc:
@@ -1082,7 +1144,10 @@ class MainWindow(QMainWindow):
         if doc is None:
             return
         try:
-            anno.add_arrow(doc, self._viewer.current_page, start, end)
+            anno.add_arrow(
+                doc, self._viewer.current_page, start, end,
+                color=prefs_mod.parse_color(self._prefs.color_arrow),
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Annotation Failed", str(exc))
             return
@@ -1260,23 +1325,46 @@ class MainWindow(QMainWindow):
             if override:
                 action.setShortcut(QKeySequence(override))
 
+    _COLOR_ENTRIES = (
+        ColorEntry("color_highlight", "Highlight"),
+        ColorEntry("color_underline", "Underline"),
+        ColorEntry("color_strikeout", "Strikeout"),
+        ColorEntry("color_pen", "Pen"),
+        ColorEntry("color_rect", "Rectangle"),
+        ColorEntry("color_ellipse", "Ellipse"),
+        ColorEntry("color_arrow", "Arrow"),
+        ColorEntry("color_textbox", "Text Box"),
+    )
+
     def _on_preferences(self) -> None:
         entries = [e for e, _ in self._action_registry]
-        dlg = PreferencesDialog(entries, dict(self._prefs.keymap), self)
+        current_colors = {
+            e.pref_field: prefs_mod.parse_color(getattr(self._prefs, e.pref_field))
+            for e in self._COLOR_ENTRIES
+        }
+        dlg = PreferencesDialog(
+            entries,
+            dict(self._prefs.keymap),
+            list(self._COLOR_ENTRIES),
+            current_colors,
+            self,
+        )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
+        # Apply keymap overrides
         new_overrides = dlg.get_overrides()
         self._prefs.keymap = new_overrides
-        # Re-apply: first reset every action to its captured default,
-        # then layer overrides on top.
         for entry, action in self._action_registry:
             action.setShortcut(QKeySequence(entry.default_shortcut))
         self._apply_keymap_overrides()
+        # Apply color choices
+        for field, rgb in dlg.get_colors().items():
+            setattr(self._prefs, field, prefs_mod.format_color(rgb))
         try:
             prefs_mod.save(self._prefs)
         except Exception:
             pass
-        self.statusBar().showMessage("Keyboard shortcuts updated.", 4000)
+        self.statusBar().showMessage("Preferences updated.", 4000)
 
     # -------------------------------------------------------- preferences
     def _apply_loaded_preferences(self) -> None:
@@ -1296,9 +1384,15 @@ class MainWindow(QMainWindow):
         if self._prefs.window_maximized:
             self.showMaximized()
 
+    def _on_thumb_size_changed(self, value: int) -> None:
+        self._thumb_panel.set_thumbnail_width(value)
+        self._prefs.thumbnail_width_px = self._thumb_panel.thumbnail_width()
+        self._thumb_panel.select_page(self._viewer.current_page)
+
     def _capture_preferences(self) -> None:
         """Copy current UI state into ``self._prefs`` (pre-save)."""
         self._prefs.window_maximized = self.isMaximized()
+        self._prefs.thumbnail_width_px = self._thumb_panel.thumbnail_width()
         if not self.isMaximized():
             self._prefs.window_width = self.width()
             self._prefs.window_height = self.height()
