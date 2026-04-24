@@ -200,10 +200,27 @@ def add_text_box(
     fontsize: float = 12.0,
     color: RGB = (0.0, 0.0, 0.0),
 ) -> None:
-    """Editable free-text annotation positioned within *rect*."""
+    """Editable free-text annotation positioned within *rect*.
+
+    The text content is counter-rotated against ``page.rotation`` so it
+    reads upright in the user's currently-rotated view. Rationale: if the
+    user rotated the page they did so for a reason; annotations placed
+    while rotated should read naturally in that orientation, not in the
+    unrotated baseline. (Sticky-note popup orientation is viewer-driven
+    and cannot be controlled the same way.)
+
+    For page.rotation 0/90/180/270, the text rotation is set to 0/270/180/90
+    respectively — chosen so page-rotation × text-rotation = identity in
+    the rendered view.
+    """
     page = doc.page(page_index)
+    text_rotate = (360 - page.rotation) % 360
     annot = page.add_freetext_annot(
-        _to_unrotated_rect(page, rect), text, fontsize=fontsize, text_color=color
+        _to_unrotated_rect(page, rect),
+        text,
+        fontsize=fontsize,
+        text_color=color,
+        rotate=text_rotate,
     )
     annot.update()
     doc.mark_modified()

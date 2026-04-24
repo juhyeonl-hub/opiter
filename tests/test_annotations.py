@@ -212,6 +212,47 @@ def test_rect_on_rotated_page_lands_visually_at_clicked_position(
     assert tr == 0
 
 
+def test_freetext_rotation_zero_when_page_unrotated(blank_pdf: Path) -> None:
+    with Document.open(blank_pdf) as doc:
+        anno.add_text_box(doc, 0, (10, 10, 200, 50), "hello")
+        page = doc.page(0)
+        annot = next(page.annots())
+        # PyMuPDF returns -1 for "no explicit rotation" (which is equivalent
+        # to 0 visually); accept either.
+        assert annot.rotation in (0, -1)
+
+
+def test_freetext_rotation_counter_matches_page_rotation(tmp_path: Path) -> None:
+    """Regression: when the user rotates the page and adds a text box,
+    the text inside should read upright in the rotated view. This is
+    achieved by setting annot.rotate = (360 - page.rotation) % 360 so
+    the page's own rotation transform cancels it out at render time."""
+    pdf = tmp_path / "rot_text.pdf"
+    d = fitz.open()
+    d.new_page(width=612, height=792)
+    d.save(pdf)
+    d.close()
+
+    # page_rotation → expected annot.rotation values (multiple OK because
+    # PyMuPDF stores 0 as -1 "unset")
+    expected = {
+        0: {0, -1},
+        90: {270},
+        180: {180},
+        270: {90},
+    }
+    for page_rot, allowed in expected.items():
+        with Document.open(pdf) as doc:
+            doc.page(0).set_rotation(page_rot)
+            anno.add_text_box(doc, 0, (10, 10, 200, 50), f"r{page_rot}")
+            page = doc.page(0)
+            annots = list(page.annots())
+            assert annots[-1].rotation in allowed, (
+                f"page_rot={page_rot}: expected annot.rotate in {allowed}, "
+                f"got {annots[-1].rotation}"
+            )
+
+
 def test_pen_on_rotated_page_uses_derotation(tmp_path: Path) -> None:
     """Same fix must apply to ink (point lists)."""
     pdf = tmp_path / "rot_ink.pdf"
