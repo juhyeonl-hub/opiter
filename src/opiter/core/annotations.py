@@ -75,6 +75,14 @@ def add_highlight(
     doc.mark_modified()
 
 
+_UNDERLINE_OFFSET_PT = 2.5
+"""How far below the word's bbox bottom the underline sits (points).
+PyMuPDF's add_underline_annot draws the line at the bottom edge of the
+given quad, so a word rect that tightly wraps descenders would put the
+line right on top of them. Extending the rect's bottom edge shifts the
+drawn line clear of the glyphs."""
+
+
 def add_underline(
     doc: Document,
     page_index: int,
@@ -82,7 +90,12 @@ def add_underline(
     color: RGB | None = None,
 ) -> None:
     page = doc.page(page_index)
-    quads = [_to_unrotated_quad(page, r) for r in rects]
+    # Extend the bottom edge in rotated/visible coords BEFORE derotation so
+    # the "below" direction is correct regardless of page rotation.
+    expanded = [
+        (r[0], r[1], r[2], r[3] + _UNDERLINE_OFFSET_PT) for r in rects
+    ]
+    quads = [_to_unrotated_quad(page, r) for r in expanded]
     annot = page.add_underline_annot(quads)
     if color is not None:
         annot.set_colors(stroke=color)
