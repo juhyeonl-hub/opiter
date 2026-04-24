@@ -317,6 +317,37 @@ def test_delete_annotation_removes_it(blank_pdf: Path) -> None:
         assert doc.is_modified is True
 
 
+def test_move_ink_annotation_shifts_strokes(blank_pdf: Path) -> None:
+    """Regression: Ink annots do not support set_rect (PyMuPDF raises
+    'Ink annotations have no Rect property'). move_annotation must
+    translate per-stroke vertices and recreate the annot."""
+    with Document.open(blank_pdf) as doc:
+        # Draw a triangle-ish stroke
+        anno.add_ink(doc, 0, [[(100.0, 100.0), (150.0, 150.0), (120.0, 180.0)]])
+        page = doc.page(0)
+        annot = next(page.annots())
+        orig_xref = annot.xref
+        orig_rect = anno.get_annotation_rect(doc, 0, orig_xref)
+
+        ok = anno.move_annotation(doc, 0, orig_xref, dx=40, dy=60)
+        assert ok is True
+
+        # The ink annot is recreated with a new xref after translation.
+        page = doc.page(0)
+        annots = list(page.annots())
+        assert len(annots) == 1
+        new_annot = annots[0]
+        new_rect = (
+            new_annot.rect.x0, new_annot.rect.y0,
+            new_annot.rect.x1, new_annot.rect.y1,
+        )
+        # ~1-2pt rounding noise from update() round-trip is acceptable.
+        assert abs(new_rect[0] - (orig_rect[0] + 40)) < 3
+        assert abs(new_rect[1] - (orig_rect[1] + 60)) < 3
+        assert new_annot.type[1] == "Ink"
+        assert doc.is_modified is True
+
+
 def test_move_annotation_translates_rect(blank_pdf: Path) -> None:
     with Document.open(blank_pdf) as doc:
         anno.add_rect(doc, 0, (10, 10, 100, 100))

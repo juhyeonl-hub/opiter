@@ -56,15 +56,25 @@ class _ColorButton(QToolButton):
         return self._rgb
 
     def _refresh(self) -> None:
+        # Selector-scoped so the color tint does not cascade to any child
+        # widget (most importantly, to a QColorDialog that would otherwise
+        # inherit and be painted entirely in the swatch color).
         r, g, b = (int(c * 255) for c in self._rgb)
         self.setStyleSheet(
-            f"background-color: rgb({r},{g},{b}); border: 1px solid #888;"
+            f"QToolButton {{"
+            f"  background-color: rgb({r},{g},{b});"
+            f"  border: 1px solid #888;"
+            f"}}"
         )
 
     def _pick(self) -> None:
         r, g, b = (int(c * 255) for c in self._rgb)
+        # Parent the dialog to the top-level window — NOT to the button —
+        # so the button's swatch stylesheet does not cascade into the
+        # color picker's own widgets.
+        parent_window = self.window()
         chosen = QColorDialog.getColor(
-            QColor(r, g, b), self, "Pick a color"
+            QColor(r, g, b), parent_window, "Pick a color"
         )
         if chosen.isValid():
             self._rgb = (chosen.redF(), chosen.greenF(), chosen.blueF())

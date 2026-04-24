@@ -313,7 +313,13 @@ def move_annotation(
     dy: float,
 ) -> bool:
     """Translate annot by ``(dx, dy)`` given in rotated/visible coords.
-    Returns True if the annot was found and moved."""
+    Returns True if the annot was found and moved.
+
+    Ink annotations get special handling: PyMuPDF refuses ``set_rect`` on
+    them ("Ink annotations have no Rect property") because they are
+    defined by their per-stroke point lists, not a bounding box. We
+    translate the vertices and recreate the annot.
+    """
     page = doc.page(page_index)
     # Convert visible-space delta to unrotated-space delta. The translation
     # part of the matrix doesn't affect a delta vector — subtract the
@@ -327,6 +333,9 @@ def move_annotation(
     for annot in page.annots():
         if annot.xref != xref:
             continue
+        atype = annot.type[1]
+        if atype == "Ink":
+            return _move_ink_annot(page, annot, doc, ux, uy)
         r = annot.rect
         new_rect = fitz.Rect(r.x0 + ux, r.y0 + uy, r.x1 + ux, r.y1 + uy)
         annot.set_rect(new_rect)
@@ -334,3 +343,60 @@ def move_annotation(
         doc.mark_modified()
         return True
     return False
+
+
+def _move_ink_annot(page, annot, doc: Document, dx: float, dy: float) -> bool:
+    """Special-case translation for Ink: read vertices, translate, recreate.
+
+    Returns True on success. Preserves stroke color and border width
+    where readable; the new annot will have a different ``xref``, so any
+    UI selection state pointing at the old xref must be refreshed by
+    the caller.
+    """
+    raw = annot.vertices  # may be flat [Point...] or nested [[Point...]...]
+    if not raw:
+        return False
+    # Normalize to nested list of strokes.
+    first = raw[0]
+    if isinstance(first, (list, tuple)) and first and not isinstance(
+        first[0], (int, float)
+    ):
+        nested = raw
+    elif hasattr(first, "x") and hasattr(first, "y"):
+        # Flat list of fitz.Points → single stroke
+        nested = [raw]
+    else:
+        # Flat list of (x, y) tuples → single stroke
+        nested = [raw]
+
+    # Translate each point. fitz.Point and tuple/list both supported.
+    translated: list[list[tuple[float, float]]] = []
+    for stroke in nested:
+        new_stroke: list[tuple[float, float]] = []
+        for p in stroke:
+            if hasattr(p, "x") and hasattr(p, "y"):
+                new_stroke.append((float(p.x) + dx, float(p.y) + dy))
+            else:
+                new_stroke.append((float(p[0]) + dx, float(p[1]) + dy))
+        if new_stroke:
+            translated.append(new_stroke)
+
+    # Preserve stroke color + border width if available.
+    try:
+        colors = annot.colors or {}
+        stroke_color = colors.get("stroke") or (0.0, 0.0, 0.0)
+    except Exception:
+        stroke_color = (0.0, 0.0, 0.0)
+    try:
+        border = annot.border or {}
+        width = border.get("width") or 1.5
+    except Exception:
+        width = 1.5
+
+    page.delete_annot(annot)
+    new_annot = page.add_ink_annot(translated)
+    new_annot.set_colors(stroke=stroke_color)
+    new_annot.set_border(width=width)
+    new_annot.update()
+    doc.mark_modified()
+    return True
