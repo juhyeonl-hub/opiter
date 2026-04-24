@@ -21,11 +21,13 @@ class Document:
         self._modified = False
 
     @classmethod
-    def open(cls, path: str | Path) -> "Document":
-        """Open the PDF at *path*.
+    def open(cls, path: str | Path, password: str | None = None) -> "Document":
+        """Open the PDF at *path*. If encrypted, *password* is tried before
+        giving up.
 
         Raises:
-            EncryptedPDFError: The PDF is password-protected.
+            EncryptedPDFError: The PDF requires a password and either none was
+                supplied or the supplied one was wrong.
             CorruptedPDFError: The file cannot be parsed as a PDF.
         """
         p = Path(path)
@@ -34,6 +36,8 @@ class Document:
         except Exception as exc:
             raise CorruptedPDFError(f"Cannot open {p}: {exc}") from exc
         if doc.is_encrypted:
+            if password is not None and doc.authenticate(password):
+                return cls(p, doc)
             doc.close()
             raise EncryptedPDFError(f"{p} is password-protected")
         return cls(p, doc)

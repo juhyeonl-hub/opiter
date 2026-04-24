@@ -97,9 +97,9 @@ src/opiter/
 - [x] **B-2**: Annotation toolbar — second toolbar with every tool action (same QActionGroup so mutually exclusive with menu)
 - [x] **B-3**: Thumbnail size adjustment — slider 60-300px above the Pages list, persisted via prefs.thumbnail_width_px
 - [x] **C-1**: Undo/Redo — snapshot-based QUndoStack(undoLimit=30), Ctrl+Z / Ctrl+Y, covers every mutation (rotate/delete/insert/reorder/all annot ops)
-- [ ] **C-2**: Async thumbnails + disk caching
-- [ ] **C-3**: i18n
-- [ ] **C-4**: Encrypted PDF password prompt
-- [ ] **D-1**: HiDPI + window manager
-- [ ] **D-2**: External viewer compatibility matrix
-- [ ] **Polish SVR** + final verification
+- [x] **C-2 (partial)**: Thumbnail disk cache (XDG_CACHE_HOME hash-keyed by file/mtime/index/width). True async (QThreadPool) deferred — polish-of-polish item
+- [ ] **C-3**: i18n — deferred to separate brief (Qt Linguist setup + translation pass is multi-week effort outside this polish scope)
+- [x] **C-4**: Encrypted PDF password prompt — Document.open(password=...) + UI loop with up to 3 retries
+- [x] **D-1**: HiDPI (`QT_AUTO_SCREEN_SCALE_FACTOR`/`QT_ENABLE_HIGHDPI_SCALING`) + Qt message handler that filters known-benign XCB warnings
+- [x] **D-2**: External viewer compatibility matrix — [docs/external_viewer_compatibility.md](docs/external_viewer_compatibility.md)
+- [x] **Polish SVR** ([docs/polish_self_verification.md](docs/polish_self_verification.md))

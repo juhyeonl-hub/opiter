@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from opiter.core.document import Document
 from opiter.core.renderer import render_page
+from opiter.core.thumbnail_cache import get_or_render as cache_get_or_render
 
 THUMB_WIDTH_PX = 140
 THUMB_WIDTH_MIN = 60
@@ -99,6 +100,14 @@ class ThumbnailPanel(QListWidget):
 
     # --------------------------------------------------------------- helpers
     def _render_thumbnail(self, doc: Document, page_index: int) -> QPixmap:
+        try:
+            png = cache_get_or_render(doc, page_index, self._thumb_width)
+            pixmap = QPixmap()
+            if pixmap.loadFromData(png, "PNG"):
+                return pixmap
+        except Exception:
+            pass  # fall through to direct render
+        # Fallback path: direct in-memory render (no caching).
         page_w, _ = doc.page_size(page_index)
         zoom = (self._thumb_width / page_w) if page_w > 0 else 0.2
         rp = render_page(doc, page_index, zoom=zoom)

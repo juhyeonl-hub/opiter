@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QSlider,
@@ -461,25 +462,43 @@ class MainWindow(QMainWindow):
 
     def _open_path(self, path_str: str, *, confirm_discard: bool = True) -> None:
         """Load the PDF at *path_str* into the viewer. Shared by the Open
-        dialog and the Open Recent submenu.
+        dialog and the Open Recent submenu. Encrypted PDFs trigger a
+        password prompt loop.
         """
         if confirm_discard and not self._confirm_discard_if_modified():
             return
-        try:
-            doc = Document.open(path_str)
-        except EncryptedPDFError as exc:
+        doc: Document | None = None
+        password: str | None = None
+        for _ in range(4):  # original attempt + up to 3 password retries
+            try:
+                doc = Document.open(path_str, password=password)
+                break
+            except EncryptedPDFError:
+                pwd, ok = QInputDialog.getText(
+                    self,
+                    "Password Required",
+                    f"{Path(path_str).name} is password-protected.\nEnter password:",
+                    QLineEdit.EchoMode.Password,
+                )
+                if not ok:
+                    return
+                password = pwd
+                continue
+            except CorruptedPDFError as exc:
+                QMessageBox.critical(
+                    self,
+                    "Cannot Open File",
+                    f"The file may be damaged or unsupported.\n\n{exc}",
+                )
+                return
+        else:
             QMessageBox.warning(
                 self,
-                "Encrypted PDF",
-                f"Password-protected PDFs are not yet supported.\n\n{exc}",
+                "Wrong Password",
+                "Too many incorrect attempts.",
             )
             return
-        except CorruptedPDFError as exc:
-            QMessageBox.critical(
-                self,
-                "Cannot Open File",
-                f"The file may be damaged or unsupported.\n\n{exc}",
-            )
+        if doc is None:
             return
 
         self._thumb_panel.set_document(doc)
