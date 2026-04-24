@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from opiter import __version__
 from opiter.core import annotations as anno
+from opiter.core import preferences as prefs_mod
 from opiter.core.document import Document
 from opiter.core.page_ops import (
     extract_pages,
@@ -28,6 +29,7 @@ from opiter.core.page_ops import (
     split_by_groups,
     split_per_page,
 )
+from opiter.core.preferences import Preferences
 from opiter.core.search import SearchMatch, search
 from opiter.ui.page_canvas import ToolMode
 from opiter.ui.search_bar import SearchBar
@@ -43,7 +45,10 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Opiter")
-        self.resize(1024, 768)
+        self._prefs: Preferences = prefs_mod.load()
+        self.resize(self._prefs.window_width, self._prefs.window_height)
+        if self._prefs.window_x is not None and self._prefs.window_y is not None:
+            self.move(self._prefs.window_x, self._prefs.window_y)
 
         self._viewer = ViewerWidget(self)
         self._viewer.page_changed.connect(self._on_page_changed)
@@ -103,6 +108,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self.statusBar().showMessage("Ready")
         self._update_action_states()
+        self._apply_loaded_preferences()
 
     # ------------------------------------------------------------------ build
     def _build_actions(self) -> None:
@@ -1006,7 +1012,47 @@ class MainWindow(QMainWindow):
         return False
 
     def closeEvent(self, event) -> None:  # noqa: N802  (Qt override)
-        if self._confirm_discard_if_modified():
-            event.accept()
-        else:
+        if not self._confirm_discard_if_modified():
             event.ignore()
+            return
+        try:
+            self._capture_preferences()
+            prefs_mod.save(self._prefs)
+        except Exception:
+            # Never block close on a preferences write failure.
+            pass
+        event.accept()
+
+    # -------------------------------------------------------- preferences
+    def _apply_loaded_preferences(self) -> None:
+        """Apply ``self._prefs`` to UI state after all widgets are built."""
+        # Dark mode
+        if self._prefs.dark_mode:
+            self._action_dark_mode.setChecked(True)  # triggers toggled → apply_dark
+        # Dock visibility + area
+        if not self._prefs.dock_visible:
+            self._thumb_dock.hide()
+        if self._prefs.dock_area == "right":
+            self.removeDockWidget(self._thumb_dock)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._thumb_dock)
+            if self._prefs.dock_visible:
+                self._thumb_dock.show()
+        # Maximized state takes precedence over size/pos if set
+        if self._prefs.window_maximized:
+            self.showMaximized()
+
+    def _capture_preferences(self) -> None:
+        """Copy current UI state into ``self._prefs`` (pre-save)."""
+        self._prefs.window_maximized = self.isMaximized()
+        if not self.isMaximized():
+            self._prefs.window_width = self.width()
+            self._prefs.window_height = self.height()
+            self._prefs.window_x = self.x()
+            self._prefs.window_y = self.y()
+        self._prefs.dock_visible = self._thumb_dock.isVisible()
+        dock_area = self.dockWidgetArea(self._thumb_dock)
+        if dock_area == Qt.DockWidgetArea.RightDockWidgetArea:
+            self._prefs.dock_area = "right"
+        else:
+            self._prefs.dock_area = "left"
+        self._prefs.dark_mode = self._action_dark_mode.isChecked()
