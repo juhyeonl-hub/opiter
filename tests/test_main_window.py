@@ -49,6 +49,70 @@ def test_find_actions_use_application_shortcut_context(qtbot, text_pdf):
     )
 
 
+def test_open_recent_menu_empty_initially(qtbot, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    window = MainWindow()
+    qtbot.addWidget(window)
+    actions = window._menu_recent.actions()
+    # Single disabled placeholder when no recent files
+    assert len(actions) == 1
+    assert not actions[0].isEnabled()
+
+
+def test_open_path_pushes_to_recent_and_rebuilds_menu(qtbot, text_pdf, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._open_path(str(text_pdf), confirm_discard=False)
+
+    # Recent list gets the resolved absolute path
+    assert len(window._prefs.recent_files) == 1
+    assert window._prefs.recent_files[0] == str(text_pdf.resolve())
+
+    # Menu has: 1 file entry + separator + Clear Recent = 3 actions
+    actions = window._menu_recent.actions()
+    assert len(actions) == 3
+    assert actions[0].text() == text_pdf.name
+
+    # Avoid "save unsaved changes" modal at teardown
+    doc = window._viewer._doc  # noqa: SLF001
+    if doc is not None:
+        doc._modified = False  # noqa: SLF001
+
+
+def test_clear_recent_empties_menu(qtbot, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    window = MainWindow()
+    qtbot.addWidget(window)
+    # Manually populate recent
+    window._prefs.recent_files = [str(tmp_path / "a.pdf"), str(tmp_path / "b.pdf")]
+    (tmp_path / "a.pdf").write_text("")  # prune keeps existing
+    (tmp_path / "b.pdf").write_text("")
+    window._rebuild_recent_menu()
+    # 2 files + separator + Clear Recent = 4 actions
+    assert len(window._menu_recent.actions()) == 4
+    window._on_clear_recent()
+    assert len(window._menu_recent.actions()) == 1  # placeholder only
+    assert window._prefs.recent_files == []
+
+
+def test_recent_menu_prunes_missing_files(qtbot, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    window = MainWindow()
+    qtbot.addWidget(window)
+    exists = tmp_path / "exists.pdf"
+    exists.write_text("")
+    missing = tmp_path / "missing.pdf"
+    window._prefs.recent_files = [str(exists), str(missing)]
+    window._rebuild_recent_menu()
+    assert window._prefs.recent_files == [str(exists)]
+
+
 def test_clicking_existing_sticky_note_does_not_create_duplicate(qtbot, text_pdf):
     """Regression: NOTE tool active + click on an existing icon must not
     spawn a second note dialog (the previous behavior added a duplicate

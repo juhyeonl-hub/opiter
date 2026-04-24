@@ -90,7 +90,7 @@ src/opiter/
 
 ## Task Progress
 - [x] **A-1**: Settings persistence (XDG) — window size/pos/max, dock, dark mode; atomic JSON write
-- [ ] **A-2**: Recent files menu
+- [x] **A-2**: Recent files menu — File > Open Recent, max 10, auto-prune missing, Clear Recent
 - [ ] **A-3**: Annotation edit/delete + Pointer tool
 - [ ] **A-4**: Custom keymapping
 - [ ] **B-1**: Annotation color/style options

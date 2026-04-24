@@ -283,6 +283,8 @@ class MainWindow(QMainWindow):
 
         file_menu = menubar.addMenu("&File")
         file_menu.addAction(self._action_open)
+        self._menu_recent = file_menu.addMenu("Open &Recent")
+        self._rebuild_recent_menu()
         file_menu.addSeparator()
         file_menu.addAction(self._action_save)
         file_menu.addAction(self._action_save_as)
@@ -365,6 +367,14 @@ class MainWindow(QMainWindow):
         )
         if not path_str:
             return
+        self._open_path(path_str, confirm_discard=False)
+
+    def _open_path(self, path_str: str, *, confirm_discard: bool = True) -> None:
+        """Load the PDF at *path_str* into the viewer. Shared by the Open
+        dialog and the Open Recent submenu.
+        """
+        if confirm_discard and not self._confirm_discard_if_modified():
+            return
         try:
             doc = Document.open(path_str)
         except EncryptedPDFError as exc:
@@ -388,7 +398,36 @@ class MainWindow(QMainWindow):
         self._reset_search_state()
         self._refresh_title()
         self._update_action_states()
+        # Update recent files (front of MRU) and refresh submenu
+        prefs_mod.push_recent_file(self._prefs, path_str)
+        self._rebuild_recent_menu()
         self.statusBar().showMessage(f"Loaded {doc.page_count} page(s)")
+
+    # ---------------------------------------------------- Open Recent menu
+    def _rebuild_recent_menu(self) -> None:
+        if not hasattr(self, "_menu_recent"):
+            return
+        prefs_mod.prune_missing_recent_files(self._prefs)
+        self._menu_recent.clear()
+        if not self._prefs.recent_files:
+            placeholder = QAction("(no recent files)", self)
+            placeholder.setEnabled(False)
+            self._menu_recent.addAction(placeholder)
+            return
+        for p in self._prefs.recent_files:
+            name = Path(p).name
+            action = QAction(name, self)
+            action.setToolTip(p)
+            action.triggered.connect(lambda _checked=False, path=p: self._open_path(path))
+            self._menu_recent.addAction(action)
+        self._menu_recent.addSeparator()
+        clear = QAction("&Clear Recent", self)
+        clear.triggered.connect(self._on_clear_recent)
+        self._menu_recent.addAction(clear)
+
+    def _on_clear_recent(self) -> None:
+        self._prefs.recent_files.clear()
+        self._rebuild_recent_menu()
 
     def _on_save(self) -> None:
         doc = self._viewer._doc  # noqa: SLF001
