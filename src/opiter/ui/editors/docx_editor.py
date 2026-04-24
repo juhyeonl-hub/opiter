@@ -56,23 +56,32 @@ def _table_html(table) -> str:
 
 
 def docx_to_html(path: str | Path) -> str:
-    """Render a .docx file as minimal HTML suitable for QTextEdit display."""
+    """Render a .docx file as minimal HTML suitable for QTextEdit display.
+
+    Walks body children in document order. For each ``<p>`` / ``<tbl>``
+    XML element we pull the next wrapper from ``doc.paragraphs`` /
+    ``doc.tables`` — both iterate in document order and only expose
+    top-level blocks, which is what we need.
+    """
     from docx import Document as DocxDocument
 
     doc = DocxDocument(str(path))
+    para_iter = iter(doc.paragraphs)
+    table_iter = iter(doc.tables)
+
     parts: list[str] = [
         "<html><body style='font-family:sans-serif;line-height:1.4;'>"
     ]
     for block in doc.element.body.iterchildren():
         tag = block.tag.rsplit("}", 1)[-1]
         if tag == "p":
-            from docx.text.paragraph import Paragraph
-
-            parts.append(_paragraph_html(Paragraph(block, doc.element.body)))
+            p = next(para_iter, None)
+            if p is not None:
+                parts.append(_paragraph_html(p))
         elif tag == "tbl":
-            from docx.table import Table
-
-            parts.append(_table_html(Table(block, doc.element.body)))
+            t = next(table_iter, None)
+            if t is not None:
+                parts.append(_table_html(t))
     parts.append("</body></html>")
     return "".join(parts)
 
