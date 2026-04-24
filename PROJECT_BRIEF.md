@@ -151,6 +151,12 @@ opiter/
 - [x] **Step 6-5**: PDF 합치기 (다중 파일 선택, 입력 순서 유지)
 - [ ] (Undo/Redo는 폴리싱 단계로 deferral — ARCHITECTURE.md의 QUndoStack 도입은 Phase 2~3 완료 후 일괄)
 - [x] **Step 7**: Phase 2 Self-Verification Report ([docs/phase2_self_verification.md](docs/phase2_self_verification.md))
-- [ ] **Step 8**: Phase 3 구현 (하이라이트/밑줄/취소선, 스티키 노트, 자유 그리기, 도형, 텍스트 박스)
+- [x] **Step 8**: Phase 3 구현 (Annotate 메뉴, ToolMode 디스패치, PageCanvas 인터랙션, /Annot 표준 영속화)
+  - [x] 8 foundation: Document.mark_modified, core/annotations.py, ui/page_canvas.py, ViewerWidget refactor
+  - [x] 8-1: 텍스트 마크업 (드래그 선택 → highlight/underline/strikeout 단어별)
+  - [x] 8-2: 스티키 노트 (클릭 → multiline input → text annot)
+  - [x] 8-3: 자유 그리기 (드래그 → 실시간 preview → ink annot)
+  - [x] 8-4: 도형 (rect/ellipse drag → preview → square/circle annot, arrow → line annot with arrow head)
+  - [x] 8-5: 텍스트 박스 (drag → input dialog → freetext annot)
 - [ ] **Step 9**: Phase 3 Self-Verification Report
 - [ ] **Step 10**: 최종 통합 테스트 + 완료 선언

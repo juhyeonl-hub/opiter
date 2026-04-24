@@ -47,6 +47,15 @@ class Document:
     def is_modified(self) -> bool:
         return self._modified
 
+    def mark_modified(self) -> None:
+        """Flag the document as having unsaved changes.
+
+        Used by external operations (e.g. annotation helpers in
+        :mod:`opiter.core.annotations`) that mutate page contents
+        without going through Document's own mutating methods.
+        """
+        self._modified = True
+
     def page(self, index: int) -> fitz.Page:
         if not 0 <= index < self.page_count:
             raise IndexError(

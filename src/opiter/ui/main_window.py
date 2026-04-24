@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from opiter import __version__
+from opiter.core import annotations as anno
 from opiter.core.document import Document
 from opiter.core.page_ops import (
     extract_pages,
@@ -28,6 +29,7 @@ from opiter.core.page_ops import (
     split_per_page,
 )
 from opiter.core.search import SearchMatch, search
+from opiter.ui.page_canvas import ToolMode
 from opiter.ui.search_bar import SearchBar
 from opiter.ui.theme import apply_dark, apply_light
 from opiter.ui.thumbnail_panel import ThumbnailPanel
@@ -64,6 +66,14 @@ class MainWindow(QMainWindow):
 
         self._search_results: list[SearchMatch] = []
         self._search_current: int = -1
+
+        # Wire annotation-tool signals from PageCanvas
+        canvas = self._viewer.page_canvas
+        canvas.text_drag_finished.connect(self._on_text_drag_finished)
+        canvas.canvas_clicked.connect(self._on_canvas_clicked)
+        canvas.stroke_finished.connect(self._on_stroke_finished)
+        canvas.rect_drag_finished.connect(self._on_rect_drag_finished)
+        canvas.arrow_drag_finished.connect(self._on_arrow_drag_finished)
 
         self._thumb_panel = ThumbnailPanel(self)
         self._thumb_panel.page_clicked.connect(self._viewer.goto_page)
@@ -211,6 +221,57 @@ class MainWindow(QMainWindow):
         self._action_about = QAction("&About Opiter", self)
         self._action_about.triggered.connect(self._on_about)
 
+        # ----- Annotation tool actions (mutually exclusive via QActionGroup) ---
+        self._tool_group = QActionGroup(self)
+        self._tool_group.setExclusive(True)
+
+        self._action_tool_none = self._make_tool_action(
+            "&Select (no tool)", ToolMode.NONE, "Esc", checked=True
+        )
+        self._action_tool_highlight = self._make_tool_action(
+            "&Highlight Text", ToolMode.HIGHLIGHT
+        )
+        self._action_tool_underline = self._make_tool_action(
+            "&Underline Text", ToolMode.UNDERLINE
+        )
+        self._action_tool_strikeout = self._make_tool_action(
+            "&Strikeout Text", ToolMode.STRIKEOUT
+        )
+        self._action_tool_note = self._make_tool_action(
+            "Sticky &Note", ToolMode.NOTE
+        )
+        self._action_tool_pen = self._make_tool_action(
+            "&Pen (Freehand)", ToolMode.PEN
+        )
+        self._action_tool_rect = self._make_tool_action(
+            "&Rectangle", ToolMode.RECT
+        )
+        self._action_tool_ellipse = self._make_tool_action(
+            "&Ellipse", ToolMode.ELLIPSE
+        )
+        self._action_tool_arrow = self._make_tool_action(
+            "&Arrow", ToolMode.ARROW
+        )
+        self._action_tool_textbox = self._make_tool_action(
+            "&Text Box", ToolMode.TEXTBOX
+        )
+
+    def _make_tool_action(
+        self,
+        text: str,
+        mode: ToolMode,
+        shortcut: str | None = None,
+        checked: bool = False,
+    ) -> QAction:
+        action = QAction(text, self)
+        action.setCheckable(True)
+        action.setChecked(checked)
+        if shortcut is not None:
+            action.setShortcut(QKeySequence(shortcut))
+        action.triggered.connect(lambda _checked, m=mode: self._set_tool(m))
+        self._tool_group.addAction(action)
+        return action
+
     def _build_menus(self) -> None:
         menubar = self.menuBar()
 
@@ -254,6 +315,21 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self._action_toggle_thumbs)
         view_menu.addAction(self._action_dark_mode)
+
+        annotate_menu = menubar.addMenu("&Annotate")
+        annotate_menu.addAction(self._action_tool_none)
+        annotate_menu.addSeparator()
+        annotate_menu.addAction(self._action_tool_highlight)
+        annotate_menu.addAction(self._action_tool_underline)
+        annotate_menu.addAction(self._action_tool_strikeout)
+        annotate_menu.addSeparator()
+        annotate_menu.addAction(self._action_tool_note)
+        annotate_menu.addAction(self._action_tool_pen)
+        annotate_menu.addSeparator()
+        annotate_menu.addAction(self._action_tool_rect)
+        annotate_menu.addAction(self._action_tool_ellipse)
+        annotate_menu.addAction(self._action_tool_arrow)
+        annotate_menu.addAction(self._action_tool_textbox)
 
         help_menu = menubar.addMenu("&Help")
         help_menu.addAction(self._action_about)
@@ -696,6 +772,123 @@ class MainWindow(QMainWindow):
         # Internal access — viewer always has a document at this point.
         return self._viewer._doc  # noqa: SLF001  (intentional for search hookup)
 
+    # ----------------------------------------------------------- annotation tools
+    def _set_tool(self, mode: ToolMode) -> None:
+        if not self._viewer.has_document() and mode != ToolMode.NONE:
+            self._action_tool_none.setChecked(True)
+            return
+        self._viewer.page_canvas.set_tool(mode)
+        self.statusBar().showMessage(
+            f"Tool: {mode.name.title()}" if mode != ToolMode.NONE else "Ready",
+            3000,
+        )
+
+    def _refresh_after_annotation(self) -> None:
+        """After a new annotation is added, re-render and update title/state."""
+        # Re-render forces PyMuPDF to bake the new /Annot into the pixmap.
+        self._viewer.reload_current()
+        self._refresh_title()
+        self._update_action_states()
+
+    def _on_text_drag_finished(
+        self, tool_value: int, pdf_rect: tuple[float, float, float, float]
+    ) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        page_idx = self._viewer.current_page
+        word_rects = anno.find_words_in_rect(doc, page_idx, pdf_rect)
+        if not word_rects:
+            self.statusBar().showMessage(
+                "No text found in selection.", 3000
+            )
+            return
+        try:
+            tool = ToolMode(tool_value)
+            if tool == ToolMode.HIGHLIGHT:
+                anno.add_highlight(doc, page_idx, word_rects)
+            elif tool == ToolMode.UNDERLINE:
+                anno.add_underline(doc, page_idx, word_rects)
+            elif tool == ToolMode.STRIKEOUT:
+                anno.add_strikeout(doc, page_idx, word_rects)
+            else:
+                return
+        except Exception as exc:
+            QMessageBox.critical(self, "Annotation Failed", str(exc))
+            return
+        self._refresh_after_annotation()
+
+    def _on_canvas_clicked(
+        self, tool_value: int, pdf_point: tuple[float, float]
+    ) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None or ToolMode(tool_value) != ToolMode.NOTE:
+            return
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Sticky Note", "Note text:", ""
+        )
+        if not ok or not text.strip():
+            return
+        try:
+            anno.add_sticky_note(doc, self._viewer.current_page, pdf_point, text)
+        except Exception as exc:
+            QMessageBox.critical(self, "Annotation Failed", str(exc))
+            return
+        self._refresh_after_annotation()
+
+    def _on_stroke_finished(self, stroke: list[tuple[float, float]]) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None or len(stroke) < 2:
+            return
+        try:
+            anno.add_ink(doc, self._viewer.current_page, [stroke])
+        except Exception as exc:
+            QMessageBox.critical(self, "Annotation Failed", str(exc))
+            return
+        self._refresh_after_annotation()
+
+    def _on_rect_drag_finished(
+        self, tool_value: int, pdf_rect: tuple[float, float, float, float]
+    ) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        page_idx = self._viewer.current_page
+        try:
+            tool = ToolMode(tool_value)
+            if tool == ToolMode.RECT:
+                anno.add_rect(doc, page_idx, pdf_rect)
+            elif tool == ToolMode.ELLIPSE:
+                anno.add_ellipse(doc, page_idx, pdf_rect)
+            elif tool == ToolMode.TEXTBOX:
+                text, ok = QInputDialog.getMultiLineText(
+                    self, "Text Box", "Text:", ""
+                )
+                if not ok or not text.strip():
+                    return
+                anno.add_text_box(doc, page_idx, pdf_rect, text)
+            else:
+                return
+        except Exception as exc:
+            QMessageBox.critical(self, "Annotation Failed", str(exc))
+            return
+        self._refresh_after_annotation()
+
+    def _on_arrow_drag_finished(
+        self,
+        start: tuple[float, float],
+        end: tuple[float, float],
+    ) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        try:
+            anno.add_arrow(doc, self._viewer.current_page, start, end)
+        except Exception as exc:
+            QMessageBox.critical(self, "Annotation Failed", str(exc))
+            return
+        self._refresh_after_annotation()
+
     def _on_toggle_dark_mode(self, checked: bool) -> None:
         app = QApplication.instance()
         if app is None:
@@ -740,6 +933,15 @@ class MainWindow(QMainWindow):
             self._action_extract,
             self._action_split_ranges,
             self._action_split_per_page,
+            self._action_tool_highlight,
+            self._action_tool_underline,
+            self._action_tool_strikeout,
+            self._action_tool_note,
+            self._action_tool_pen,
+            self._action_tool_rect,
+            self._action_tool_ellipse,
+            self._action_tool_arrow,
+            self._action_tool_textbox,
         ):
             act.setEnabled(has_doc)
         doc = self._viewer._doc  # noqa: SLF001
