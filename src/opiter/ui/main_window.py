@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QSlider,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -36,12 +37,17 @@ from opiter.core.page_ops import (
     split_by_groups,
     split_per_page,
 )
+from opiter.core.pdf_to_docx import pdf_to_docx
+from opiter.core.pdf_to_hwp import hwp_conversion_available, pdf_to_hwp
 from opiter.core.preferences import Preferences
 from opiter.core.search import SearchMatch, search
 from opiter.core.toc import read_toc, write_toc
 from opiter.core.undo import SnapshotCommand
 from opiter.core.watermark import add_text_watermark
 from opiter.ui.bookmarks_panel import BookmarksPanel
+from opiter.ui.editors.docx_editor import DOCXEditor
+from opiter.ui.editors.hwp_editor import HWPEditor
+from opiter.ui.export_dialog import ExportOptionsDialog
 from opiter.ui.metadata_dialog import MetadataDialog
 from opiter.ui.page_canvas import ToolMode
 from opiter.ui.preferences_dialog import ColorEntry, KeymapEntry, PreferencesDialog
@@ -75,13 +81,29 @@ class MainWindow(QMainWindow):
         self._search_bar.prev_requested.connect(self._on_search_prev)
         self._search_bar.close_requested.connect(self._on_search_close)
 
-        central = QWidget(self)
-        vbox = QVBoxLayout(central)
-        vbox.setContentsMargins(0, 0, 0, 0)
-        vbox.setSpacing(0)
-        vbox.addWidget(self._viewer, stretch=1)
-        vbox.addWidget(self._search_bar)
-        self.setCentralWidget(central)
+        # PDF tab content — viewer + inline search bar, matches prior behavior.
+        self._pdf_tab = QWidget(self)
+        _pdf_layout = QVBoxLayout(self._pdf_tab)
+        _pdf_layout.setContentsMargins(0, 0, 0, 0)
+        _pdf_layout.setSpacing(0)
+        _pdf_layout.addWidget(self._viewer, stretch=1)
+        _pdf_layout.addWidget(self._search_bar)
+
+        # Central area is a QTabWidget. PDF lives at index 0 and is always
+        # present. DOCX / HWP editors will be added as additional tabs in
+        # later Phase-5 sub-steps; see AbstractEditor for the interface.
+        self._tabs = QTabWidget(self)
+        self._tabs.setTabsClosable(True)
+        self._tabs.addTab(self._pdf_tab, "PDF")
+        self._tabs.setTabToolTip(0, "PDF editor (always open)")
+        # PDF tab is not closeable — remove its close button.
+        pdf_tab_bar = self._tabs.tabBar()
+        pdf_tab_bar.setTabButton(
+            0, pdf_tab_bar.ButtonPosition.RightSide, None  # type: ignore[arg-type]
+        )
+        self._tabs.tabCloseRequested.connect(self._on_tab_close_requested)
+        self._tabs.currentChanged.connect(self._on_tab_changed)
+        self.setCentralWidget(self._tabs)
 
         self._search_results: list[SearchMatch] = []
         self._search_current: int = -1
@@ -309,6 +331,17 @@ class MainWindow(QMainWindow):
         self._action_metadata = QAction("Document &Properties…", self)
         self._action_metadata.triggered.connect(self._on_metadata)
 
+        # Phase 5: cross-format export
+        self._action_export_docx = QAction("Export as &DOCX…", self)
+        self._action_export_docx.triggered.connect(self._on_export_docx)
+
+        self._action_export_hwp = QAction("Export as &HWP…", self)
+        self._action_export_hwp.triggered.connect(self._on_export_hwp)
+        if not hwp_conversion_available():
+            self._action_export_hwp.setToolTip(
+                "Requires LibreOffice + the h2orestart extension (for HWP export)."
+            )
+
         # Undo / Redo come from the stack so their text auto-includes the
         # command label, and they enable/disable correctly.
         self._action_undo = self._undo_stack.createUndoAction(self, "&Undo")
@@ -394,6 +427,8 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self._action_export_images)
         file_menu.addAction(self._action_images_to_pdf)
+        file_menu.addAction(self._action_export_docx)
+        file_menu.addAction(self._action_export_hwp)
         file_menu.addSeparator()
         file_menu.addAction(self._action_metadata)
         file_menu.addSeparator()
@@ -503,19 +538,27 @@ class MainWindow(QMainWindow):
             return
         path_str, _ = QFileDialog.getOpenFileName(
             self,
-            "Open PDF",
+            "Open Document",
             str(Path.home()),
-            "PDF files (*.pdf);;All files (*)",
+            "All supported (*.pdf *.docx *.hwp);;PDF files (*.pdf);;"
+            "Word documents (*.docx);;HWP documents (*.hwp);;All files (*)",
         )
         if not path_str:
             return
         self._open_path(path_str, confirm_discard=False)
 
     def _open_path(self, path_str: str, *, confirm_discard: bool = True) -> None:
-        """Load the PDF at *path_str* into the viewer. Shared by the Open
-        dialog and the Open Recent submenu. Encrypted PDFs trigger a
-        password prompt loop.
+        """Load a document at *path_str*. PDF replaces the PDF tab; DOCX
+        and HWP each spawn a new tab. Encrypted PDFs prompt for a password.
         """
+        ext = Path(path_str).suffix.lower()
+        if ext == ".docx":
+            self._open_docx_tab(path_str)
+            return
+        if ext == ".hwp":
+            self._open_hwp_tab(path_str)
+            return
+
         if confirm_discard and not self._confirm_discard_if_modified():
             return
         doc: Document | None = None
@@ -1223,6 +1266,142 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    # =============================================================== Phase 5 export
+    def _on_export_docx(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        if doc.is_modified:
+            save_first = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved edits. Save the PDF first so they appear "
+                "in the DOCX export?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.No
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save,
+            )
+            if save_first == QMessageBox.StandardButton.Cancel:
+                return
+            if save_first == QMessageBox.StandardButton.Save:
+                self._on_save()
+                if doc.is_modified:
+                    return  # save failed
+        dlg = ExportOptionsDialog("Export as DOCX", self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        opts = dlg.options()
+        default_out = str(doc.path.with_name(f"{doc.path.stem}.docx"))
+        out_str, _ = QFileDialog.getSaveFileName(
+            self, "Save DOCX", default_out, "Word files (*.docx)"
+        )
+        if not out_str:
+            return
+        try:
+            pdf_to_docx(doc.path, out_str)
+        except Exception as exc:
+            QMessageBox.critical(self, "DOCX Export Failed", str(exc))
+            return
+        msg = "Exported to DOCX."
+        if not opts.include_annotations:
+            msg += " (Annotations excluded via pdf2docx — rasterized only.)"
+        self.statusBar().showMessage(msg, 5000)
+
+    def _on_export_hwp(self) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        if not hwp_conversion_available():
+            QMessageBox.information(
+                self,
+                "HWP Export Unavailable",
+                "HWP export needs LibreOffice plus the h2orestart extension "
+                "(which is not bundled by default). Install both and retry.",
+            )
+            return
+        if doc.is_modified:
+            self._on_save()
+            if doc.is_modified:
+                return
+        default_out = str(doc.path.with_name(f"{doc.path.stem}.hwp"))
+        out_str, _ = QFileDialog.getSaveFileName(
+            self, "Save HWP", default_out, "HWP files (*.hwp)"
+        )
+        if not out_str:
+            return
+        try:
+            pdf_to_hwp(doc.path, out_str)
+        except Exception as exc:
+            QMessageBox.critical(self, "HWP Export Failed", str(exc))
+            return
+        self.statusBar().showMessage("Exported to HWP.", 5000)
+
+    # =============================================================== Phase 5 tabs
+    def _open_docx_tab(self, path_str: str) -> None:
+        editor = DOCXEditor()
+        editor.status_message.connect(
+            lambda msg, ms: self.statusBar().showMessage(msg, ms)
+        )
+        try:
+            editor.open_file(path_str)
+        except Exception as exc:
+            QMessageBox.critical(self, "Cannot Open DOCX", str(exc))
+            editor.deleteLater()
+            return
+        self._add_non_pdf_tab(editor, Path(path_str).name, icon="📝")
+        prefs_mod.push_recent_file(self._prefs, path_str)
+        self._rebuild_recent_menu()
+
+    def _open_hwp_tab(self, path_str: str) -> None:
+        editor = HWPEditor()
+        editor.status_message.connect(
+            lambda msg, ms: self.statusBar().showMessage(msg, ms)
+        )
+        try:
+            editor.open_file(path_str)
+        except Exception as exc:
+            QMessageBox.critical(self, "Cannot Open HWP", str(exc))
+            editor.deleteLater()
+            return
+        self._add_non_pdf_tab(editor, Path(path_str).name, icon="📄")
+        prefs_mod.push_recent_file(self._prefs, path_str)
+        self._rebuild_recent_menu()
+
+    def _add_non_pdf_tab(
+        self, editor: QWidget, title: str, icon: str = ""
+    ) -> None:
+        label = f"{icon} {title}" if icon else title
+        idx = self._tabs.addTab(editor, label)
+        self._tabs.setCurrentIndex(idx)
+
+    def _on_tab_close_requested(self, index: int) -> None:
+        """User clicked a tab's × button. PDF tab is protected (no button),
+        so this only fires for DOCX/HWP tabs added in later sub-steps."""
+        if index == 0:
+            return  # PDF tab is not closeable
+        widget = self._tabs.widget(index)
+        self._tabs.removeTab(index)
+        if widget is not None:
+            # If the widget implements the editor interface, give it a chance
+            # to release any held resources.
+            close = getattr(widget, "close_document", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+            widget.deleteLater()
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Hide or show PDF-only docks depending on which tab is active."""
+        is_pdf = index == 0
+        # Thumbnails / bookmarks belong to the PDF document model.
+        self._thumb_dock.setVisible(is_pdf and self._prefs.dock_visible)
+        self._bookmarks_dock.setVisible(
+            is_pdf and self._bookmarks_dock.isVisible()
+        )
+
     # =============================================================== Phase 4
     def _on_export_images(self) -> None:
         doc = self._viewer._doc  # noqa: SLF001
@@ -1458,8 +1637,10 @@ class MainWindow(QMainWindow):
             self._action_compress,
             self._action_watermark,
             self._action_metadata,
+            self._action_export_docx,
         ):
             act.setEnabled(has_doc)
+        self._action_export_hwp.setEnabled(has_doc and hwp_conversion_available())
         doc = self._viewer._doc  # noqa: SLF001
         self._action_save.setEnabled(has_doc and doc is not None and doc.is_modified)
         self._action_delete_page.setEnabled(

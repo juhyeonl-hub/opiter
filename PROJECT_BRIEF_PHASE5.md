@@ -73,10 +73,10 @@ src/opiter/
 - **탭 간 공유/분리 상태**: preferences는 전역, undo stack은 탭별, recent files는 전역, 도구 선택은 PDF 탭 내부
 
 ## Task Progress
-- [ ] **11-1**: Tab infrastructure + PDFEditor 캡슐화
-- [ ] **11-2**: DOCXEditor 뷰어
-- [ ] **11-3**: HWPEditor 뷰어
-- [ ] **11-4**: Format-aware Open 라우팅
-- [ ] **11-5**: PDF → DOCX export
-- [ ] **11-6**: PDF → HWP export (best-effort)
-- [ ] **11-7**: Phase 5 SVR + final verification
+- [x] **11-1**: Tab infrastructure (QTabWidget 중앙 위젯, PDF 탭 고정, DOCX/HWP 동적 탭)
+- [x] **11-2**: DOCXEditor 뷰어 (python-docx → HTML → QTextEdit)
+- [x] **11-3**: HWPEditor 뷰어 (pyhwp 텍스트 추출)
+- [x] **11-4**: Format-aware Open 라우팅 (확장자 기반 탭 생성)
+- [x] **11-5**: PDF → DOCX export (pdf2docx + ExportOptionsDialog)
+- [x] **11-6**: PDF → HWP export best-effort (soffice + h2orestart, 부재 시 안내)
+- [x] **11-7**: Phase 5 SVR ([docs/phase5_self_verification.md](docs/phase5_self_verification.md))
