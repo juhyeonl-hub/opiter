@@ -11,7 +11,7 @@ from opiter.core.document import Document
 from opiter.core.renderer import RenderedPage, render_page
 from opiter.ui.page_canvas import PageCanvas
 
-ScrollPosition = Literal["top", "bottom"]
+ScrollPosition = Literal["top", "bottom", "keep"]
 
 _ZOOM_PRESETS: tuple[float, ...] = (
     0.25, 0.33, 0.50, 0.67, 0.75, 1.00,
@@ -97,12 +97,17 @@ class ViewerWidget(QScrollArea):
         self.goto_page(self.page_count - 1)
 
     def reload_current(self) -> None:
-        """Re-render the current page and emit page_changed."""
+        """Re-render the current page **without moving the viewport**.
+
+        Used after in-place mutations (annotations, undo/redo, etc.) where
+        the user has been scrolled to some position on the page and does
+        not want the viewer to jump back to the top every time.
+        """
         if self._doc is None:
             return
         if self._current_page >= self.page_count:
             self._current_page = max(0, self.page_count - 1)
-        self._render_current(scroll_to="top")
+        self._render_current(scroll_to="keep")
         self.page_changed.emit(self._current_page, self.page_count)
 
     # ----------------------------------------------------------------- zoom
@@ -207,13 +212,26 @@ class ViewerWidget(QScrollArea):
     def _render_current(self, scroll_to: ScrollPosition = "top") -> None:
         if self._doc is None:
             return
+        # Capture scroll position before re-rendering so "keep" can restore it
+        # after the pixmap (and therefore the scrollbar range) is replaced.
+        sb_v = self.verticalScrollBar()
+        sb_h = self.horizontalScrollBar()
+        prev_v = sb_v.value()
+        prev_h = sb_h.value()
+
         rendered = render_page(self._doc, self._current_page, zoom=self._zoom)
         image = _to_qimage(rendered)
         pixmap = QPixmap.fromImage(image)
         self._overlay_highlights(pixmap)
         self._page_canvas.set_page_pixmap(pixmap, self._zoom)
-        sb = self.verticalScrollBar()
-        sb.setValue(sb.maximum() if scroll_to == "bottom" else sb.minimum())
+
+        if scroll_to == "bottom":
+            sb_v.setValue(sb_v.maximum())
+        elif scroll_to == "top":
+            sb_v.setValue(sb_v.minimum())
+        else:  # "keep"
+            sb_v.setValue(max(sb_v.minimum(), min(sb_v.maximum(), prev_v)))
+            sb_h.setValue(max(sb_h.minimum(), min(sb_h.maximum(), prev_h)))
 
     def _overlay_highlights(self, pixmap: QPixmap) -> None:
         rects = self._highlights_by_page.get(self._current_page)

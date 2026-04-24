@@ -110,6 +110,23 @@ def test_goto_page_clamps_out_of_range(qtbot, sample_pdf):
     assert w.current_page == 0
 
 
+def test_reload_current_preserves_scroll_position(qtbot, sample_pdf):
+    """Regression: using an Annotate tool while zoomed-in used to snap the
+    viewport back to the top-left because reload_current re-rendered with
+    scroll_to='top'. It must now preserve the current scroll values."""
+    w = _scrollable_viewer(qtbot, sample_pdf)
+    sb_v = w.verticalScrollBar()
+    sb_h = w.horizontalScrollBar()
+    # Put the viewport somewhere in the middle
+    mid_v = (sb_v.minimum() + sb_v.maximum()) // 2
+    mid_h = (sb_h.minimum() + sb_h.maximum()) // 2
+    sb_v.setValue(mid_v)
+    sb_h.setValue(mid_h)
+    w.reload_current()
+    assert sb_v.value() == mid_v
+    assert sb_h.value() == mid_h
+
+
 def test_no_op_navigation_does_not_emit(qtbot, sample_pdf):
     w = ViewerWidget()
     qtbot.addWidget(w)
