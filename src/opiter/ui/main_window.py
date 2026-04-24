@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QDockWidget,
     QFileDialog,
     QInputDialog,
@@ -32,6 +33,7 @@ from opiter.core.page_ops import (
 from opiter.core.preferences import Preferences
 from opiter.core.search import SearchMatch, search
 from opiter.ui.page_canvas import ToolMode
+from opiter.ui.preferences_dialog import KeymapEntry, PreferencesDialog
 from opiter.ui.search_bar import SearchBar
 from opiter.ui.theme import apply_dark, apply_light
 from opiter.ui.thumbnail_panel import ThumbnailPanel
@@ -110,6 +112,10 @@ class MainWindow(QMainWindow):
         self._zoom_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._build_actions()
+        self._action_registry: list[tuple[KeymapEntry, QAction]] = (
+            self._build_keymap_registry()
+        )
+        self._apply_keymap_overrides()
         self._build_menus()
         self._build_toolbar()
         self.statusBar().showMessage("Ready")
@@ -233,6 +239,10 @@ class MainWindow(QMainWindow):
         self._action_about = QAction("&About Opiter", self)
         self._action_about.triggered.connect(self._on_about)
 
+        self._action_preferences = QAction("&Preferences…", self)
+        self._action_preferences.setShortcut(QKeySequence("Ctrl+,"))
+        self._action_preferences.triggered.connect(self._on_preferences)
+
         # ----- Annotation tool actions (mutually exclusive via QActionGroup) ---
         self._tool_group = QActionGroup(self)
         self._tool_group.setExclusive(True)
@@ -312,6 +322,8 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._action_find)
         edit_menu.addAction(self._action_find_next)
         edit_menu.addAction(self._action_find_prev)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self._action_preferences)
         edit_menu.addSeparator()
         edit_menu.addAction(self._action_rotate_right)
         edit_menu.addAction(self._action_rotate_left)
@@ -1179,6 +1191,92 @@ class MainWindow(QMainWindow):
             # Never block close on a preferences write failure.
             pass
         event.accept()
+
+    # ------------------------------------------------------------- keymap
+    def _build_keymap_registry(self) -> list[tuple[KeymapEntry, QAction]]:
+        """List of ((id, label, default_shortcut), action) for every action
+        the user is allowed to rebind. Default shortcut is captured BEFORE
+        ``_apply_keymap_overrides`` mutates the actions."""
+        spec: list[tuple[str, str, QAction]] = [
+            # File
+            ("file.open", "Open File", self._action_open),
+            ("file.save", "Save", self._action_save),
+            ("file.save_as", "Save As", self._action_save_as),
+            ("file.quit", "Quit", self._action_quit),
+            # Edit
+            ("edit.find", "Find", self._action_find),
+            ("edit.find_next", "Find Next", self._action_find_next),
+            ("edit.find_prev", "Find Previous", self._action_find_prev),
+            ("edit.preferences", "Preferences", self._action_preferences),
+            ("edit.rotate_right", "Rotate Page Right", self._action_rotate_right),
+            ("edit.rotate_left", "Rotate Page Left", self._action_rotate_left),
+            ("edit.delete_page", "Delete Page", self._action_delete_page),
+            # View — navigation
+            ("view.prev_page", "Previous Page", self._action_prev),
+            ("view.next_page", "Next Page", self._action_next),
+            ("view.first_page", "First Page", self._action_first),
+            ("view.last_page", "Last Page", self._action_last),
+            ("view.goto_page", "Go to Page", self._action_goto),
+            # View — zoom
+            ("view.zoom_in", "Zoom In", self._action_zoom_in),
+            ("view.zoom_out", "Zoom Out", self._action_zoom_out),
+            ("view.fit_page", "Fit Page", self._action_fit_page),
+            ("view.actual_size", "Actual Size", self._action_actual_size),
+            ("view.fit_width", "Fit Width", self._action_fit_width),
+            # View — layout/theme
+            ("view.toggle_thumbs", "Show Thumbnails", self._action_toggle_thumbs),
+            ("view.dark_mode", "Dark Mode", self._action_dark_mode),
+            # Annotate — tools
+            ("annotate.tool_none", "Tool: Select", self._action_tool_none),
+            ("annotate.tool_pointer", "Tool: Pointer", self._action_tool_pointer),
+            ("annotate.tool_highlight", "Tool: Highlight", self._action_tool_highlight),
+            ("annotate.tool_underline", "Tool: Underline", self._action_tool_underline),
+            ("annotate.tool_strikeout", "Tool: Strikeout", self._action_tool_strikeout),
+            ("annotate.tool_note", "Tool: Sticky Note", self._action_tool_note),
+            ("annotate.tool_pen", "Tool: Pen", self._action_tool_pen),
+            ("annotate.tool_rect", "Tool: Rectangle", self._action_tool_rect),
+            ("annotate.tool_ellipse", "Tool: Ellipse", self._action_tool_ellipse),
+            ("annotate.tool_arrow", "Tool: Arrow", self._action_tool_arrow),
+            ("annotate.tool_textbox", "Tool: Text Box", self._action_tool_textbox),
+            ("annotate.delete_selected", "Delete Selected Annotation",
+             self._action_delete_selected_annot),
+        ]
+        return [
+            (
+                KeymapEntry(
+                    action_id=aid,
+                    display_name=label,
+                    default_shortcut=action.shortcut().toString(),
+                ),
+                action,
+            )
+            for aid, label, action in spec
+        ]
+
+    def _apply_keymap_overrides(self) -> None:
+        """Apply per-action shortcut overrides from preferences."""
+        for entry, action in self._action_registry:
+            override = self._prefs.keymap.get(entry.action_id)
+            if override:
+                action.setShortcut(QKeySequence(override))
+
+    def _on_preferences(self) -> None:
+        entries = [e for e, _ in self._action_registry]
+        dlg = PreferencesDialog(entries, dict(self._prefs.keymap), self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_overrides = dlg.get_overrides()
+        self._prefs.keymap = new_overrides
+        # Re-apply: first reset every action to its captured default,
+        # then layer overrides on top.
+        for entry, action in self._action_registry:
+            action.setShortcut(QKeySequence(entry.default_shortcut))
+        self._apply_keymap_overrides()
+        try:
+            prefs_mod.save(self._prefs)
+        except Exception:
+            pass
+        self.statusBar().showMessage("Keyboard shortcuts updated.", 4000)
 
     # -------------------------------------------------------- preferences
     def _apply_loaded_preferences(self) -> None:

@@ -92,7 +92,7 @@ src/opiter/
 - [x] **A-1**: Settings persistence (XDG) — window size/pos/max, dock, dark mode; atomic JSON write
 - [x] **A-2**: Recent files menu — File > Open Recent, max 10, auto-prune missing, Clear Recent
 - [x] **A-3**: Annotation edit/delete + Pointer tool — click-to-select w/ dashed bbox, Delete key, drag inside box to move
-- [ ] **A-4**: Custom keymapping
+- [x] **A-4**: Custom keymapping — Edit > Preferences (Ctrl+,), QKeySequenceEdit per action, persisted in prefs.keymap, Reset All
 - [ ] **B-1**: Annotation color/style options
 - [ ] **B-2**: Annotation toolbar
 - [ ] **B-3**: Thumbnail size adjustment

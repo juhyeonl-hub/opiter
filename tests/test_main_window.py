@@ -49,6 +49,42 @@ def test_find_actions_use_application_shortcut_context(qtbot, text_pdf):
     )
 
 
+def test_keymap_registry_includes_core_actions(qtbot, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    window = MainWindow()
+    qtbot.addWidget(window)
+    ids = {entry.action_id for entry, _ in window._action_registry}
+    # Sanity: at minimum these must be configurable
+    for required in {
+        "file.open", "file.save", "edit.find", "view.zoom_in",
+        "view.dark_mode", "annotate.tool_pointer",
+        "annotate.delete_selected",
+    }:
+        assert required in ids, f"missing {required} from keymap registry"
+
+
+def test_keymap_override_applied_at_construction(qtbot, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    # Pre-write a preferences.json with a custom shortcut for file.open
+    from opiter.core import preferences as prefs_mod
+    from opiter.core.preferences import Preferences
+
+    p = Preferences(keymap={"file.open": "Ctrl+Alt+O"})
+    prefs_mod.save(p)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window._action_open.shortcut().toString() == "Ctrl+Alt+O"
+
+
+def test_keymap_default_when_no_override(qtbot, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    window = MainWindow()
+    qtbot.addWidget(window)
+    # Open uses StandardKey.Open which on Linux is Ctrl+O
+    assert "Ctrl+O" in window._action_open.shortcut().toString()
+
+
 def test_open_recent_menu_empty_initially(qtbot, monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
