@@ -111,9 +111,49 @@ class PageCanvas(QLabel):
         self.setText("(No document loaded — File → Open to begin)")
 
     def pixel_to_pdf(self, p: QPoint) -> tuple[float, float]:
+        """Translate a label-local pixel point to PDF point coordinates.
+
+        The pixmap is rendered at the natural ``page_width × zoom`` size but
+        the QLabel itself is grown by the parent QScrollArea's
+        ``widgetResizable=True`` to fill the viewport. With AlignCenter the
+        pixmap sits centered inside the larger label — so we must subtract
+        the centering offset before dividing by zoom, or every annotation
+        ends up shifted right/down.
+        """
         if self._zoom <= 0:
             return (0.0, 0.0)
-        return (p.x() / self._zoom, p.y() / self._zoom)
+        ox, oy = self._pixmap_offset()
+        return ((p.x() - ox) / self._zoom, (p.y() - oy) / self._zoom)
+
+    def _pixmap_offset(self) -> tuple[int, int]:
+        """Top-left of the pixmap inside this label, in label-local pixels."""
+        if self._base_pixmap is None:
+            return (0, 0)
+        pm_w = self._base_pixmap.width()
+        pm_h = self._base_pixmap.height()
+        ox = max(0, (self.width() - pm_w) // 2)
+        oy = max(0, (self.height() - pm_h) // 2)
+        return (ox, oy)
+
+    def _is_inside_pixmap(self, p: QPoint) -> bool:
+        if self._base_pixmap is None:
+            return False
+        ox, oy = self._pixmap_offset()
+        return (
+            ox <= p.x() < ox + self._base_pixmap.width()
+            and oy <= p.y() < oy + self._base_pixmap.height()
+        )
+
+    def _clamp_to_pixmap(self, p: QPoint) -> QPoint:
+        if self._base_pixmap is None:
+            return p
+        ox, oy = self._pixmap_offset()
+        pm_w = self._base_pixmap.width()
+        pm_h = self._base_pixmap.height()
+        return QPoint(
+            max(ox, min(ox + pm_w - 1, p.x())),
+            max(oy, min(oy + pm_h - 1, p.y())),
+        )
 
     # --------------------------------------------------------------- mouse
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -126,6 +166,12 @@ class PageCanvas(QLabel):
             return
 
         pos = event.position().toPoint()
+        # Ignore clicks that landed in the centering margin around the
+        # pixmap — they would otherwise produce annotations placed off the
+        # page (negative or oversized PDF coordinates).
+        if not self._is_inside_pixmap(pos):
+            super().mousePressEvent(event)
+            return
 
         if self._tool == ToolMode.NOTE:
             self.canvas_clicked.emit(self._tool.value, self.pixel_to_pdf(pos))
@@ -145,7 +191,9 @@ class PageCanvas(QLabel):
         if not self._drag_active:
             super().mouseMoveEvent(event)
             return
-        pos = event.position().toPoint()
+        # Clamp to the pixmap so drag handles still produce sane PDF coords
+        # if the cursor wanders into the centering margin.
+        pos = self._clamp_to_pixmap(event.position().toPoint())
         self._drag_current_label = pos
         if self._tool == ToolMode.PEN:
             self._pen_points.append(pos)

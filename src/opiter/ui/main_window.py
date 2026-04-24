@@ -824,6 +824,16 @@ class MainWindow(QMainWindow):
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None or ToolMode(tool_value) != ToolMode.NOTE:
             return
+        # If the user clicked an existing sticky note's icon, don't open a
+        # second dialog — without this, every click on an icon spawns a
+        # duplicate note. (Reading existing note content is a polish-stage
+        # feature; for now the user can rely on an external PDF viewer.)
+        if self._click_hits_existing_note(pdf_point):
+            self.statusBar().showMessage(
+                "Existing sticky note here. Open in another PDF viewer to read it.",
+                4000,
+            )
+            return
         text, ok = QInputDialog.getMultiLineText(
             self, "Sticky Note", "Note text:", ""
         )
@@ -835,6 +845,20 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Annotation Failed", str(exc))
             return
         self._refresh_after_annotation()
+
+    def _click_hits_existing_note(self, pdf_point: tuple[float, float]) -> bool:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return False
+        page = doc.page(self._viewer.current_page)  # keep page alive in scope
+        px, py = pdf_point
+        for annot in page.annots():
+            if annot.type[1] != "Text":
+                continue
+            r = annot.rect
+            if r.x0 <= px <= r.x1 and r.y0 <= py <= r.y1:
+                return True
+        return False
 
     def _on_stroke_finished(self, stroke: list[tuple[float, float]]) -> None:
         doc = self._viewer._doc  # noqa: SLF001

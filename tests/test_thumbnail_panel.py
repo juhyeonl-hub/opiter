@@ -99,6 +99,30 @@ def test_relabel_after_reorder_resets_text_and_userrole(qtbot, sample_pdf):
         assert p.item(i).text() == f"Page {i + 1}"
 
 
+def test_page_canvas_pixel_to_pdf_subtracts_centering_offset(qtbot):
+    """Regression: when QLabel is grown beyond pixmap size by the parent
+    QScrollArea (widgetResizable=True + AlignCenter), pixel_to_pdf must
+    subtract the centering offset before dividing by zoom — else every
+    annotation lands offset to the right/down."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QPixmap
+    from opiter.ui.page_canvas import PageCanvas
+
+    canvas = PageCanvas()
+    qtbot.addWidget(canvas)
+    pm = QPixmap(400, 500)
+    canvas.set_page_pixmap(pm, zoom=1.0)
+    canvas.resize(800, 600)  # mimic viewport > pixmap
+
+    # Click at canvas (400, 300). Pixmap is centered:
+    #   offset_x = (800 - 400) / 2 = 200
+    #   offset_y = (600 - 500) / 2 = 50
+    # PDF coord = ((400 - 200) / 1.0, (300 - 50) / 1.0) = (200, 250)
+    px, py = canvas.pixel_to_pdf(QPoint(400, 300))
+    assert px == 200
+    assert py == 250
+
+
 def test_set_document_replaces_previous_contents(qtbot, sample_pdf, tmp_path):
     p = ThumbnailPanel()
     qtbot.addWidget(p)

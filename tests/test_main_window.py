@@ -49,6 +49,39 @@ def test_find_actions_use_application_shortcut_context(qtbot, text_pdf):
     )
 
 
+def test_clicking_existing_sticky_note_does_not_create_duplicate(qtbot, text_pdf):
+    """Regression: NOTE tool active + click on an existing icon must not
+    spawn a second note dialog (the previous behavior added a duplicate
+    on every click)."""
+    from opiter.core import annotations as anno
+    from opiter.ui.page_canvas import ToolMode
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    _open_doc_into(window, text_pdf)
+
+    # Plant an existing sticky note around (200, 200)
+    doc = window._viewer._doc
+    anno.add_sticky_note(doc, 0, (200.0, 200.0), "existing")
+    assert anno.annotation_count(doc, 0) == 1
+
+    # Activate NOTE tool and emit a click hitting the existing note's rect
+    window._set_tool(ToolMode.NOTE)
+    # Use the existing annot's rect center as the click point
+    page = doc.page(0)
+    annot = next(page.annots())
+    r = annot.rect
+    center = ((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
+    window._viewer.page_canvas.canvas_clicked.emit(ToolMode.NOTE.value, center)
+
+    # No new note added
+    assert anno.annotation_count(doc, 0) == 1
+
+    # Clear modified flag so qtbot's window cleanup does not trigger the
+    # "save unsaved changes?" QMessageBox (which would hang the test run).
+    doc._modified = False  # noqa: SLF001
+
+
 def test_prompt_output_directory_creates_missing_path(qtbot, text_pdf, tmp_path):
     """Regression: split output prompt must auto-mkdir non-existent paths
     (the original QFileDialog.getExistingDirectory blocked Choose for
