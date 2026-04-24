@@ -21,6 +21,7 @@ from opiter import __version__
 from opiter.core.document import Document
 from opiter.core.page_ops import (
     extract_pages,
+    merge_pdfs,
     parse_multi_range_spec,
     parse_page_range_spec,
     split_by_groups,
@@ -135,6 +136,9 @@ class MainWindow(QMainWindow):
         self._action_split_per_page = QAction("Split PDF Per &Page", self)
         self._action_split_per_page.triggered.connect(self._on_split_per_page)
 
+        self._action_merge = QAction("&Merge PDFs…", self)
+        self._action_merge.triggered.connect(self._on_merge_pdfs)
+
         self._action_prev = QAction("&Previous Page", self)
         self._action_prev.setShortcut(QKeySequence(Qt.Key.Key_PageUp))
         self._action_prev.triggered.connect(self._viewer.prev_page)
@@ -232,6 +236,7 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._action_extract)
         edit_menu.addAction(self._action_split_ranges)
         edit_menu.addAction(self._action_split_per_page)
+        edit_menu.addAction(self._action_merge)
 
         view_menu = menubar.addMenu("&View")
         view_menu.addAction(self._action_prev)
@@ -483,6 +488,44 @@ class MainWindow(QMainWindow):
             self,
             "Split Complete",
             f"Wrote {len(written)} file(s) to:\n{out_dir}",
+        )
+
+    def _on_merge_pdfs(self) -> None:
+        # Merge does not require an open document — let the user pick
+        # any PDFs to combine.
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select PDFs to Merge (in order)",
+            str(Path.home()),
+            "PDF files (*.pdf);;All files (*)",
+        )
+        if not paths:
+            return
+        if len(paths) < 2:
+            QMessageBox.warning(
+                self,
+                "Need More Files",
+                "Select at least two PDFs to merge.",
+            )
+            return
+        default_out = str(Path(paths[0]).parent / "merged.pdf")
+        out_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Merged PDF",
+            default_out,
+            "PDF files (*.pdf);;All files (*)",
+        )
+        if not out_str:
+            return
+        try:
+            out = merge_pdfs(paths, out_str)
+        except Exception as exc:
+            QMessageBox.critical(self, "Merge Failed", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Merge Complete",
+            f"Merged {len(paths)} files into:\n{out}",
         )
 
     def _on_split_per_page(self) -> None:

@@ -49,6 +49,29 @@ def test_find_actions_use_application_shortcut_context(qtbot, text_pdf):
     )
 
 
+def test_prompt_output_directory_creates_missing_path(qtbot, text_pdf, tmp_path):
+    """Regression: split output prompt must auto-mkdir non-existent paths
+    (the original QFileDialog.getExistingDirectory blocked Choose for
+    folders that didn't exist yet)."""
+    import unittest.mock as mock
+    from opiter.ui import main_window as mw
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    _open_doc_into(window, text_pdf)
+
+    target = tmp_path / "a" / "b" / "new_dir"
+    assert not target.exists()
+
+    with mock.patch.object(
+        mw.QInputDialog, "getText", return_value=(str(target), True)
+    ):
+        result = window._prompt_output_directory("default", "title")
+
+    assert result == str(target)
+    assert target.is_dir()
+
+
 def test_reopening_search_with_stale_query_re_runs_search(qtbot, text_pdf):
     """Regression: closing the search bar (X / Esc) keeps the query in the
     input. Re-opening with Ctrl+F must re-run the search so highlights and

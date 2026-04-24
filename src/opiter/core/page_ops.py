@@ -124,3 +124,32 @@ def split_per_page(
     return split_by_groups(
         doc, [[i] for i in range(doc.page_count)], output_dir, base_name
     )
+
+
+# --------------------------------------------------------------- merge
+def merge_pdfs(
+    input_paths: list[str | Path], output_path: str | Path
+) -> Path:
+    """Concatenate the PDFs at *input_paths* into a single file at *output_path*.
+
+    Pages appear in the order of *input_paths*. The source files are
+    opened read-only and not modified. Returns the output path.
+
+    Raises:
+        ValueError: ``input_paths`` is empty.
+    """
+    if not input_paths:
+        raise ValueError("No input PDFs to merge")
+    output_path = Path(output_path)
+    new_doc = fitz.open()
+    try:
+        for path in input_paths:
+            src = fitz.open(str(path))
+            try:
+                new_doc.insert_pdf(src)
+            finally:
+                src.close()
+        new_doc.save(str(output_path))
+    finally:
+        new_doc.close()
+    return output_path

@@ -148,9 +148,9 @@ opiter/
 - [x] **Step 6-2**: 페이지 삭제 (확인 다이얼로그) + 빈 페이지 삽입 (이웃 페이지 크기 상속)
 - [x] **Step 6-3**: 페이지 순서 변경 (썸네일 드래그, 뷰어 follow 로직, fitz.select 기반)
 - [x] **Step 6-4**: PDF 추출 (단일 범위→1파일) + 나누기 (다중 범위→N파일 / 낱장→N파일)
-- [ ] **Step 6-5**: PDF 합치기 (다중 파일 선택, 순서 지정)
+- [x] **Step 6-5**: PDF 합치기 (다중 파일 선택, 입력 순서 유지)
 - [ ] (Undo/Redo는 폴리싱 단계로 deferral — ARCHITECTURE.md의 QUndoStack 도입은 Phase 2~3 완료 후 일괄)
-- [ ] **Step 7**: Phase 2 Self-Verification Report
+- [x] **Step 7**: Phase 2 Self-Verification Report ([docs/phase2_self_verification.md](docs/phase2_self_verification.md))
 - [ ] **Step 8**: Phase 3 구현 (하이라이트/밑줄/취소선, 스티키 노트, 자유 그리기, 도형, 텍스트 박스)
 - [ ] **Step 9**: Phase 3 Self-Verification Report
 - [ ] **Step 10**: 최종 통합 테스트 + 완료 선언

@@ -9,6 +9,7 @@ import pytest
 from opiter.core.document import Document
 from opiter.core.page_ops import (
     extract_pages,
+    merge_pdfs,
     parse_multi_range_spec,
     parse_page_range_spec,
     split_by_groups,
@@ -163,3 +164,74 @@ def test_split_per_page_creates_one_file_per_page(
         with Document.open(p) as d:
             assert d.page_count == 1
             assert f"PAGE_{i}_MARKER" in d.page(0).get_text("text")
+
+
+# ---------------------------------------------------------------- merge
+def _make_marker_pdf(path: Path, marker: str, pages: int) -> Path:
+    """Helper: write a PDF with N pages, each containing a unique marker."""
+    doc = fitz.open()
+    for i in range(pages):
+        p = doc.new_page()
+        p.insert_text((50, 100), f"{marker}_p{i + 1}", fontsize=18)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_merge_combines_all_inputs_in_order(tmp_path: Path) -> None:
+    a = _make_marker_pdf(tmp_path / "a.pdf", "A", 2)
+    b = _make_marker_pdf(tmp_path / "b.pdf", "B", 3)
+    c = _make_marker_pdf(tmp_path / "c.pdf", "C", 1)
+    out = tmp_path / "merged.pdf"
+
+    merge_pdfs([a, b, c], out)
+
+    with Document.open(out) as merged:
+        assert merged.page_count == 6
+        assert "A_p1" in merged.page(0).get_text("text")
+        assert "A_p2" in merged.page(1).get_text("text")
+        assert "B_p1" in merged.page(2).get_text("text")
+        assert "B_p3" in merged.page(4).get_text("text")
+        assert "C_p1" in merged.page(5).get_text("text")
+
+
+def test_merge_preserves_input_order(tmp_path: Path) -> None:
+    a = _make_marker_pdf(tmp_path / "a.pdf", "A", 1)
+    b = _make_marker_pdf(tmp_path / "b.pdf", "B", 1)
+    out = tmp_path / "ba.pdf"
+
+    # Reverse order
+    merge_pdfs([b, a], out)
+
+    with Document.open(out) as merged:
+        assert "B_p1" in merged.page(0).get_text("text")
+        assert "A_p1" in merged.page(1).get_text("text")
+
+
+def test_merge_does_not_mutate_inputs(tmp_path: Path) -> None:
+    a = _make_marker_pdf(tmp_path / "a.pdf", "A", 2)
+    b = _make_marker_pdf(tmp_path / "b.pdf", "B", 2)
+    out = tmp_path / "merged.pdf"
+
+    a_size_before = a.stat().st_size
+    b_size_before = b.stat().st_size
+
+    merge_pdfs([a, b], out)
+
+    assert a.stat().st_size == a_size_before
+    assert b.stat().st_size == b_size_before
+
+
+def test_merge_empty_input_list_raises(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        merge_pdfs([], tmp_path / "merged.pdf")
+
+
+def test_merge_single_input_writes_copy(tmp_path: Path) -> None:
+    """Single input is allowed (effectively a copy via PDF re-write)."""
+    a = _make_marker_pdf(tmp_path / "a.pdf", "A", 3)
+    out = tmp_path / "copy.pdf"
+    merge_pdfs([a], out)
+    with Document.open(out) as d:
+        assert d.page_count == 3
+        assert "A_p1" in d.page(0).get_text("text")
