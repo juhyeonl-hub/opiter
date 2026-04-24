@@ -232,3 +232,84 @@ def add_text_box(
 def annotation_count(doc: Document, page_index: int) -> int:
     """Return the number of annotations on *page_index*."""
     return len(list(doc.page(page_index).annots()))
+
+
+# ----------------------------------------------- selection / edit / delete
+def find_annotation_at(
+    doc: Document, page_index: int, point: Point
+) -> int | None:
+    """Return the xref of the topmost annotation containing *point*
+    (in rotated/visible coords), or ``None``.
+
+    "Topmost" = the LAST annot in iteration order (PDF z-order: later
+    annots draw on top of earlier ones).
+    """
+    page = doc.page(page_index)
+    if page.rotation != 0:
+        p = fitz.Point(*point) * page.derotation_matrix
+        px, py = p.x, p.y
+    else:
+        px, py = point
+    hit: int | None = None
+    for annot in page.annots():
+        r = annot.rect
+        if r.x0 <= px <= r.x1 and r.y0 <= py <= r.y1:
+            hit = annot.xref
+    return hit
+
+
+def get_annotation_rect(
+    doc: Document, page_index: int, xref: int
+) -> Rect | None:
+    """Return the annot's bounding rect in **rotated/visible** coords."""
+    page = doc.page(page_index)
+    for annot in page.annots():
+        if annot.xref != xref:
+            continue
+        r = annot.rect
+        if page.rotation != 0:
+            rotated = fitz.Rect(r) * page.rotation_matrix
+            return (rotated.x0, rotated.y0, rotated.x1, rotated.y1)
+        return (r.x0, r.y0, r.x1, r.y1)
+    return None
+
+
+def delete_annotation(doc: Document, page_index: int, xref: int) -> bool:
+    page = doc.page(page_index)
+    for annot in page.annots():
+        if annot.xref == xref:
+            page.delete_annot(annot)
+            doc.mark_modified()
+            return True
+    return False
+
+
+def move_annotation(
+    doc: Document,
+    page_index: int,
+    xref: int,
+    dx: float,
+    dy: float,
+) -> bool:
+    """Translate annot by ``(dx, dy)`` given in rotated/visible coords.
+    Returns True if the annot was found and moved."""
+    page = doc.page(page_index)
+    # Convert visible-space delta to unrotated-space delta. The translation
+    # part of the matrix doesn't affect a delta vector — subtract the
+    # transformed origin.
+    if page.rotation != 0:
+        p0 = fitz.Point(0, 0) * page.derotation_matrix
+        p1 = fitz.Point(dx, dy) * page.derotation_matrix
+        ux, uy = p1.x - p0.x, p1.y - p0.y
+    else:
+        ux, uy = dx, dy
+    for annot in page.annots():
+        if annot.xref != xref:
+            continue
+        r = annot.rect
+        new_rect = fitz.Rect(r.x0 + ux, r.y0 + uy, r.x1 + ux, r.y1 + uy)
+        annot.set_rect(new_rect)
+        annot.update()
+        doc.mark_modified()
+        return True
+    return False

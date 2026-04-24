@@ -286,6 +286,72 @@ def test_pen_on_rotated_page_uses_derotation(tmp_path: Path) -> None:
     assert found_red_in_tl
 
 
+def test_find_annotation_at_point_returns_topmost(blank_pdf: Path) -> None:
+    with Document.open(blank_pdf) as doc:
+        anno.add_rect(doc, 0, (10, 10, 100, 100))
+        anno.add_rect(doc, 0, (50, 50, 150, 150))  # overlaps first; later → on top
+        # Click in the overlap region — should hit the second (topmost)
+        page = doc.page(0)
+        annots = list(page.annots())
+        top_xref = annots[-1].xref
+        hit = anno.find_annotation_at(doc, 0, (75, 75))
+        assert hit == top_xref
+
+
+def test_find_annotation_at_returns_none_when_no_hit(blank_pdf: Path) -> None:
+    with Document.open(blank_pdf) as doc:
+        anno.add_rect(doc, 0, (10, 10, 50, 50))
+        assert anno.find_annotation_at(doc, 0, (200, 200)) is None
+
+
+def test_delete_annotation_removes_it(blank_pdf: Path) -> None:
+    with Document.open(blank_pdf) as doc:
+        anno.add_rect(doc, 0, (10, 10, 100, 100))
+        page = doc.page(0)
+        annot = next(page.annots())
+        xref = annot.xref
+        assert anno.annotation_count(doc, 0) == 1
+        ok = anno.delete_annotation(doc, 0, xref)
+        assert ok is True
+        assert anno.annotation_count(doc, 0) == 0
+        assert doc.is_modified is True
+
+
+def test_move_annotation_translates_rect(blank_pdf: Path) -> None:
+    with Document.open(blank_pdf) as doc:
+        anno.add_rect(doc, 0, (10, 10, 100, 100))
+        page = doc.page(0)
+        annot = next(page.annots())
+        xref = annot.xref
+        before = anno.get_annotation_rect(doc, 0, xref)
+        anno.move_annotation(doc, 0, xref, dx=20, dy=30)
+        after = anno.get_annotation_rect(doc, 0, xref)
+        # Allow ~1pt PDF rounding noise from set_rect/update round-trip
+        assert abs(after[0] - (before[0] + 20)) < 2
+        assert abs(after[1] - (before[1] + 30)) < 2
+        assert abs(after[2] - (before[2] + 20)) < 2
+        assert abs(after[3] - (before[3] + 30)) < 2
+
+
+def test_find_annotation_at_works_on_rotated_page(tmp_path: Path) -> None:
+    """User clicks in rotated visible coords; the helper must derotate
+    before doing point-in-rect comparison against unrotated annot rects."""
+    pdf = tmp_path / "rot.pdf"
+    d = fitz.open()
+    d.new_page(width=612, height=792)
+    d.save(pdf)
+    d.close()
+
+    with Document.open(pdf) as doc:
+        # Rotate first, then add a rect at rotated TL — derotation in
+        # add_rect places it at unrotated bottom-left.
+        doc.page(0).set_rotation(90)
+        anno.add_rect(doc, 0, (10, 10, 200, 100))
+        # Click at center of where the user sees it (rotated TL ~ (100, 50))
+        hit = anno.find_annotation_at(doc, 0, (100, 50))
+        assert hit is not None
+
+
 def test_annotations_marked_modified_until_saved(blank_pdf: Path) -> None:
     with Document.open(blank_pdf) as doc:
         assert doc.is_modified is False

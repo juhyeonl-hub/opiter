@@ -79,6 +79,12 @@ class MainWindow(QMainWindow):
         canvas.stroke_finished.connect(self._on_stroke_finished)
         canvas.rect_drag_finished.connect(self._on_rect_drag_finished)
         canvas.arrow_drag_finished.connect(self._on_arrow_drag_finished)
+        canvas.pointer_clicked.connect(self._on_pointer_clicked)
+        canvas.pointer_drag_finished.connect(self._on_pointer_drag_finished)
+
+        # POINTER selection state
+        self._selected_annot_xref: int | None = None
+        self._selected_annot_page: int | None = None
 
         self._thumb_panel = ThumbnailPanel(self)
         self._thumb_panel.page_clicked.connect(self._viewer.goto_page)
@@ -234,6 +240,9 @@ class MainWindow(QMainWindow):
         self._action_tool_none = self._make_tool_action(
             "&Select (no tool)", ToolMode.NONE, "Esc", checked=True
         )
+        self._action_tool_pointer = self._make_tool_action(
+            "&Pointer (Select / Move / Delete)", ToolMode.POINTER
+        )
         self._action_tool_highlight = self._make_tool_action(
             "&Highlight Text", ToolMode.HIGHLIGHT
         )
@@ -261,6 +270,14 @@ class MainWindow(QMainWindow):
         self._action_tool_textbox = self._make_tool_action(
             "&Text Box", ToolMode.TEXTBOX
         )
+
+        self._action_delete_selected_annot = QAction("Delete Selected &Annotation", self)
+        self._action_delete_selected_annot.setShortcut(QKeySequence(Qt.Key.Key_Delete))
+        self._action_delete_selected_annot.setShortcutContext(
+            Qt.ShortcutContext.ApplicationShortcut
+        )
+        self._action_delete_selected_annot.triggered.connect(self._on_delete_selected_annot)
+        self._action_delete_selected_annot.setEnabled(False)
 
     def _make_tool_action(
         self,
@@ -326,6 +343,9 @@ class MainWindow(QMainWindow):
 
         annotate_menu = menubar.addMenu("&Annotate")
         annotate_menu.addAction(self._action_tool_none)
+        annotate_menu.addAction(self._action_tool_pointer)
+        annotate_menu.addSeparator()
+        annotate_menu.addAction(self._action_delete_selected_annot)
         annotate_menu.addSeparator()
         annotate_menu.addAction(self._action_tool_highlight)
         annotate_menu.addAction(self._action_tool_underline)
@@ -396,6 +416,7 @@ class MainWindow(QMainWindow):
         self._viewer.set_document(doc)
         self._thumb_panel.select_page(self._viewer.current_page)
         self._reset_search_state()
+        self._clear_annot_selection()
         self._refresh_title()
         self._update_action_states()
         # Update recent files (front of MRU) and refresh submenu
@@ -720,6 +741,12 @@ class MainWindow(QMainWindow):
 
     def _on_page_changed(self, current: int, total: int) -> None:
         self._page_indicator.setText(f"{current + 1} / {total}" if total > 0 else "—")
+        # Selection is page-scoped; clear when leaving its page.
+        if (
+            self._selected_annot_page is not None
+            and self._selected_annot_page != current
+        ):
+            self._clear_annot_selection()
         self._update_action_states()
 
     def _on_zoom_changed(self, zoom: float) -> None:
@@ -822,11 +849,102 @@ class MainWindow(QMainWindow):
         if not self._viewer.has_document() and mode != ToolMode.NONE:
             self._action_tool_none.setChecked(True)
             return
+        # Leaving POINTER clears any selection state
+        if mode != ToolMode.POINTER:
+            self._clear_annot_selection()
         self._viewer.page_canvas.set_tool(mode)
         self.statusBar().showMessage(
             f"Tool: {mode.name.title()}" if mode != ToolMode.NONE else "Ready",
             3000,
         )
+
+    def _clear_annot_selection(self) -> None:
+        self._selected_annot_xref = None
+        self._selected_annot_page = None
+        self._viewer.page_canvas.set_selection_rect(None)
+        self._action_delete_selected_annot.setEnabled(False)
+
+    def _on_pointer_clicked(self, pdf_point: tuple[float, float]) -> None:
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        page_idx = self._viewer.current_page
+        xref = anno.find_annotation_at(doc, page_idx, pdf_point)
+        if xref is None:
+            self._clear_annot_selection()
+            self.statusBar().showMessage("No annotation at click point.", 2000)
+            return
+        self._selected_annot_xref = xref
+        self._selected_annot_page = page_idx
+        rect = anno.get_annotation_rect(doc, page_idx, xref)
+        self._viewer.page_canvas.set_selection_rect(rect)
+        self._action_delete_selected_annot.setEnabled(True)
+        self.statusBar().showMessage(
+            "Annotation selected — Delete to remove, drag inside box to move.",
+            4000,
+        )
+
+    def _on_pointer_drag_finished(
+        self,
+        start_pdf: tuple[float, float],
+        end_pdf: tuple[float, float],
+    ) -> None:
+        # Drag = move only if we have a selected annotation AND the drag
+        # started inside its bounding box.
+        if (
+            self._selected_annot_xref is None
+            or self._selected_annot_page is None
+        ):
+            return
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None or self._selected_annot_page != self._viewer.current_page:
+            return
+        rect = anno.get_annotation_rect(
+            doc, self._selected_annot_page, self._selected_annot_xref
+        )
+        if rect is None:
+            return
+        sx, sy = start_pdf
+        if not (rect[0] <= sx <= rect[2] and rect[1] <= sy <= rect[3]):
+            # User clicked outside the selection bbox to select something
+            # else — already handled by _on_pointer_clicked. No move.
+            return
+        dx = end_pdf[0] - start_pdf[0]
+        dy = end_pdf[1] - start_pdf[1]
+        if abs(dx) < 1 and abs(dy) < 1:
+            return  # tiny drag, ignore
+        try:
+            anno.move_annotation(
+                doc, self._selected_annot_page, self._selected_annot_xref, dx, dy
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Move Failed", str(exc))
+            return
+        self._refresh_after_annotation()
+        # Refresh selection box at the new position
+        new_rect = anno.get_annotation_rect(
+            doc, self._selected_annot_page, self._selected_annot_xref
+        )
+        self._viewer.page_canvas.set_selection_rect(new_rect)
+
+    def _on_delete_selected_annot(self) -> None:
+        if (
+            self._selected_annot_xref is None
+            or self._selected_annot_page is None
+        ):
+            return
+        doc = self._viewer._doc  # noqa: SLF001
+        if doc is None:
+            return
+        try:
+            anno.delete_annotation(
+                doc, self._selected_annot_page, self._selected_annot_xref
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Delete Failed", str(exc))
+            return
+        self._clear_annot_selection()
+        self._refresh_after_annotation()
 
     def _refresh_after_annotation(self) -> None:
         """After a new annotation is added, re-render and update title/state."""

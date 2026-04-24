@@ -28,6 +28,7 @@ from PySide6.QtWidgets import QLabel, QWidget
 
 class ToolMode(Enum):
     NONE = auto()
+    POINTER = auto()       # select / move / delete existing annotations
     HIGHLIGHT = auto()
     UNDERLINE = auto()
     STRIKEOUT = auto()
@@ -61,6 +62,10 @@ class PageCanvas(QLabel):
     # Arrow — start + end points
     arrow_drag_finished = Signal(tuple, tuple)  # start, end (each (x,y))
 
+    # POINTER tool — pure selection click and (after-selection) drag-to-move.
+    pointer_clicked = Signal(tuple)               # (x, y) PDF pts
+    pointer_drag_finished = Signal(tuple, tuple)  # (start_pdf, end_pdf)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -79,19 +84,35 @@ class PageCanvas(QLabel):
         # Pen state — list of label-coord points
         self._pen_points: list[QPoint] = []
 
+        # POINTER tool — selection rect to draw (in PDF/rotated coords;
+        # converted to label coords at paint time).
+        self._selection_rect_pdf: tuple[float, float, float, float] | None = None
+
     # ------------------------------------------------------------ public API
     def set_tool(self, tool: ToolMode) -> None:
         self._tool = tool
         # Reset cursor for visual feedback
         if tool == ToolMode.NONE:
             self.unsetCursor()
+        elif tool == ToolMode.POINTER:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
         elif tool == ToolMode.NOTE:
             self.setCursor(Qt.CursorShape.WhatsThisCursor)
         elif tool == ToolMode.PEN:
             self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.setCursor(Qt.CursorShape.CrossCursor)
+        # Leaving POINTER clears the visible selection.
+        if tool != ToolMode.POINTER:
+            self._selection_rect_pdf = None
         self._reset_drag()
+        self.update()
+
+    def set_selection_rect(
+        self, rect_pdf: tuple[float, float, float, float] | None
+    ) -> None:
+        """Show or clear the dashed selection box (rotated/visible coords)."""
+        self._selection_rect_pdf = rect_pdf
         self.update()
 
     def current_tool(self) -> ToolMode:
@@ -178,6 +199,18 @@ class PageCanvas(QLabel):
             event.accept()
             return
 
+        if self._tool == ToolMode.POINTER:
+            # Always emit click — the parent decides whether it hit an
+            # existing annotation (and if so, may begin tracking a drag).
+            self.pointer_clicked.emit(self.pixel_to_pdf(pos))
+            # Begin drag tracking for potential move; if no annot is
+            # selected, the release will be a no-op.
+            self._drag_active = True
+            self._drag_start_label = pos
+            self._drag_current_label = pos
+            event.accept()
+            return
+
         # Drag-based tools — start tracking
         self._drag_active = True
         self._drag_start_label = pos
@@ -209,7 +242,12 @@ class PageCanvas(QLabel):
         start = self._drag_start_label
         end = self._drag_current_label or start
 
-        if tool == ToolMode.PEN and len(self._pen_points) >= 2:
+        if tool == ToolMode.POINTER:
+            if (start - end).manhattanLength() > 2:
+                self.pointer_drag_finished.emit(
+                    self.pixel_to_pdf(start), self.pixel_to_pdf(end)
+                )
+        elif tool == ToolMode.PEN and len(self._pen_points) >= 2:
             stroke = [self.pixel_to_pdf(p) for p in self._pen_points]
             self.stroke_finished.emit(stroke)
         elif tool in (ToolMode.HIGHLIGHT, ToolMode.UNDERLINE, ToolMode.STRIKEOUT):
@@ -235,7 +273,31 @@ class PageCanvas(QLabel):
     # --------------------------------------------------------------- paint
     def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)  # draws the base pixmap
-        if not self._drag_active or self._base_pixmap is None:
+        if self._base_pixmap is None:
+            return
+
+        # Persistent overlay: selection box (POINTER tool) — drawn even
+        # when not actively dragging.
+        if self._selection_rect_pdf is not None:
+            painter = QPainter(self)
+            try:
+                pen = QPen(QColor(0, 120, 215, 230), 2, Qt.PenStyle.DashLine)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                ox, oy = self._pixmap_offset()
+                x0, y0, x1, y1 = self._selection_rect_pdf
+                painter.drawRect(
+                    QRectF(
+                        ox + x0 * self._zoom,
+                        oy + y0 * self._zoom,
+                        (x1 - x0) * self._zoom,
+                        (y1 - y0) * self._zoom,
+                    )
+                )
+            finally:
+                painter.end()
+
+        if not self._drag_active:
             return
 
         painter = QPainter(self)
