@@ -158,5 +158,5 @@ opiter/
   - [x] 8-3: 자유 그리기 (드래그 → 실시간 preview → ink annot)
   - [x] 8-4: 도형 (rect/ellipse drag → preview → square/circle annot, arrow → line annot with arrow head)
   - [x] 8-5: 텍스트 박스 (drag → input dialog → freetext annot)
-- [ ] **Step 9**: Phase 3 Self-Verification Report
-- [ ] **Step 10**: 최종 통합 테스트 + 완료 선언
+- [x] **Step 9**: Phase 3 Self-Verification Report ([docs/phase3_self_verification.md](docs/phase3_self_verification.md))
+- [x] **Step 10**: 최종 통합 테스트 + 완료 선언 ([docs/final_completion.md](docs/final_completion.md))
