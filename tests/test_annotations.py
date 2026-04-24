@@ -167,6 +167,82 @@ def test_multiple_annotations_coexist_on_same_page(blank_pdf: Path) -> None:
         assert anno.annotation_count(r, 0) == 3
 
 
+def test_rect_on_rotated_page_lands_visually_at_clicked_position(
+    tmp_path: Path,
+) -> None:
+    """Regression: annotations were appearing displaced on rotated pages
+    because PyMuPDF's add_*_annot uses unrotated original-page coords
+    while the UI passes rotated/visible coords. Each helper now applies
+    page.derotation_matrix.
+
+    Probe: rotate a page 90°, then add a small filled rect at "rotated
+    visible top-left" (rotated coords (0,0,200,100)). After rendering,
+    that area of the rendered pixmap should contain the red fill.
+    """
+    pdf = tmp_path / "rot.pdf"
+    d = fitz.open()
+    d.new_page(width=612, height=792)
+    d.save(pdf)
+    d.close()
+
+    with Document.open(pdf) as doc:
+        page = doc.page(0)
+        page.set_rotation(90)
+        anno.add_rect(doc, 0, (0.0, 0.0, 200.0, 100.0), color=(1.0, 0.0, 0.0))
+        # Re-fetch page to ensure a stable handle for rendering
+        page = doc.page(0)
+        pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
+
+    def red_count(p: fitz.Pixmap, xs: range, ys: range) -> int:
+        n = p.n
+        c = 0
+        for y in ys:
+            for x in xs:
+                idx = y * p.stride + x * n
+                if p.samples[idx] > 200 and p.samples[idx + 1] < 100 and p.samples[idx + 2] < 100:
+                    c += 1
+        return c
+
+    w, h = pix.width, pix.height
+    tl = red_count(pix, range(0, w // 4), range(0, h // 4))
+    tr = red_count(pix, range(3 * w // 4, w), range(0, h // 4))
+    # Annotation at rotated-TL should produce red in the TL quadrant.
+    # Without the derotation fix it landed in the TR quadrant.
+    assert tl > 0
+    assert tr == 0
+
+
+def test_pen_on_rotated_page_uses_derotation(tmp_path: Path) -> None:
+    """Same fix must apply to ink (point lists)."""
+    pdf = tmp_path / "rot_ink.pdf"
+    d = fitz.open()
+    d.new_page(width=612, height=792)
+    d.save(pdf)
+    d.close()
+
+    with Document.open(pdf) as doc:
+        doc.page(0).set_rotation(90)
+        # Single horizontal stroke at "rotated" top-left
+        anno.add_ink(doc, 0, [[(20.0, 20.0), (180.0, 20.0)]],
+                     color=(1.0, 0.0, 0.0), width=4.0)
+        page = doc.page(0)
+        pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
+
+    # Sample around the stroke's expected visual position
+    w, h = pix.width, pix.height
+    n = pix.n
+    found_red_in_tl = False
+    for y in range(0, h // 4):
+        for x in range(0, w // 4):
+            idx = y * pix.stride + x * n
+            if pix.samples[idx] > 200 and pix.samples[idx + 1] < 100 and pix.samples[idx + 2] < 100:
+                found_red_in_tl = True
+                break
+        if found_red_in_tl:
+            break
+    assert found_red_in_tl
+
+
 def test_annotations_marked_modified_until_saved(blank_pdf: Path) -> None:
     with Document.open(blank_pdf) as doc:
         assert doc.is_modified is False

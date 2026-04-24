@@ -4,9 +4,14 @@ All annotations are written using PyMuPDF's standard ``/Annot`` types so
 external PDF viewers (Adobe Reader, Foxit, browser PDF.js, evince, …)
 render them natively.
 
+Coordinates are PDF points (1/72 inch) in the page's **current/rotated**
+orientation — i.e. the same coordinates the user sees on screen. PyMuPDF's
+``page.add_*_annot`` APIs themselves take coordinates in the page's
+**unrotated** original space, so each function here applies
+``page.derotation_matrix`` before delegating. Without this the annotation
+ends up displaced (visible only when the page has been rotated).
+
 Each function marks the document modified via :py:meth:`Document.mark_modified`.
-Coordinates are PDF points (1/72 inch); UI code is responsible for
-translating viewport pixels via the current zoom factor before calling.
 """
 from __future__ import annotations
 
@@ -17,20 +22,47 @@ import fitz
 from opiter.core.document import Document
 
 Rect = tuple[float, float, float, float]
-"""``(x0, y0, x1, y1)`` in PDF points."""
+"""``(x0, y0, x1, y1)`` in PDF points (rotated/visible space)."""
 
 Point = tuple[float, float]
-"""``(x, y)`` in PDF points."""
+"""``(x, y)`` in PDF points (rotated/visible space)."""
 
 RGB = tuple[float, float, float]
 """Each channel in ``[0.0, 1.0]``."""
+
+
+# ----------------------------------------------- coordinate transformation
+def _to_unrotated_rect(page: fitz.Page, r: Rect) -> fitz.Rect:
+    """Convert a rect in the page's current orientation to its unrotated form.
+
+    PyMuPDF's annotation APIs expect unrotated page coordinates; UI clicks
+    arrive in the rotated coordinate system the user is interacting with.
+    """
+    rect = fitz.Rect(*r)
+    if page.rotation == 0:
+        return rect
+    # `Rect * Matrix` transforms then re-normalizes the corners.
+    return rect * page.derotation_matrix
+
+
+def _to_unrotated_point(page: fitz.Page, p: Point) -> fitz.Point:
+    point = fitz.Point(*p)
+    if page.rotation == 0:
+        return point
+    return point * page.derotation_matrix
+
+
+def _to_unrotated_quad(page: fitz.Page, r: Rect) -> fitz.Quad:
+    """Same as ``_to_unrotated_rect`` but returns a Quad (needed by the
+    text-marking annotations which want quads, not rects)."""
+    return _to_unrotated_rect(page, r).quad
 
 
 # ------------------------------------------------------------ text marking
 def add_highlight(doc: Document, page_index: int, rects: Sequence[Rect]) -> None:
     """Yellow highlight covering each rect (typically one per word)."""
     page = doc.page(page_index)
-    quads = [fitz.Rect(*r).quad for r in rects]
+    quads = [_to_unrotated_quad(page, r) for r in rects]
     annot = page.add_highlight_annot(quads)
     annot.update()
     doc.mark_modified()
@@ -38,7 +70,7 @@ def add_highlight(doc: Document, page_index: int, rects: Sequence[Rect]) -> None
 
 def add_underline(doc: Document, page_index: int, rects: Sequence[Rect]) -> None:
     page = doc.page(page_index)
-    quads = [fitz.Rect(*r).quad for r in rects]
+    quads = [_to_unrotated_quad(page, r) for r in rects]
     annot = page.add_underline_annot(quads)
     annot.update()
     doc.mark_modified()
@@ -46,7 +78,7 @@ def add_underline(doc: Document, page_index: int, rects: Sequence[Rect]) -> None
 
 def add_strikeout(doc: Document, page_index: int, rects: Sequence[Rect]) -> None:
     page = doc.page(page_index)
-    quads = [fitz.Rect(*r).quad for r in rects]
+    quads = [_to_unrotated_quad(page, r) for r in rects]
     annot = page.add_strikeout_annot(quads)
     annot.update()
     doc.mark_modified()
@@ -55,13 +87,15 @@ def add_strikeout(doc: Document, page_index: int, rects: Sequence[Rect]) -> None
 def find_words_in_rect(
     doc: Document, page_index: int, rect: Rect
 ) -> list[Rect]:
-    """Return bounding rects of all words intersecting *rect* on *page_index*.
-
-    Useful for translating a user's drag-selection rectangle into the per-word
-    rectangles required by the highlight / underline / strikeout annotations.
+    """Return bounding rects of all words intersecting *rect* (rotated coords)
+    on *page_index*. Returned rects are also in rotated coords so callers can
+    feed them straight back into ``add_highlight`` etc.
     """
     page = doc.page(page_index)
     sel = fitz.Rect(*rect)
+    # page.get_text("words") returns rects in rotated/visible coords for a
+    # rotated page (PyMuPDF docs), so the intersection test is consistent
+    # with how the user sees the text.
     words = page.get_text("words")  # list of (x0, y0, x1, y1, "w", b, l, w_no)
     out: list[Rect] = []
     for w in words:
@@ -77,7 +111,7 @@ def add_sticky_note(
 ) -> None:
     """Pop-up text annotation anchored at *point*."""
     page = doc.page(page_index)
-    annot = page.add_text_annot(fitz.Point(*point), text)
+    annot = page.add_text_annot(_to_unrotated_point(page, point), text)
     annot.update()
     doc.mark_modified()
 
@@ -92,8 +126,13 @@ def add_ink(
 ) -> None:
     """Freehand ink annotation. Each stroke is a list of consecutive points."""
     page = doc.page(page_index)
-    # PyMuPDF expects "seq of seq of float pairs" — plain tuples work, fitz.Point doesn't.
-    fitz_strokes = [[(float(p[0]), float(p[1])) for p in stroke] for stroke in strokes]
+    fitz_strokes: list[list[tuple[float, float]]] = []
+    for stroke in strokes:
+        new_stroke: list[tuple[float, float]] = []
+        for p in stroke:
+            up = _to_unrotated_point(page, (float(p[0]), float(p[1])))
+            new_stroke.append((up.x, up.y))
+        fitz_strokes.append(new_stroke)
     annot = page.add_ink_annot(fitz_strokes)
     annot.set_colors(stroke=color)
     annot.set_border(width=width)
@@ -110,7 +149,7 @@ def add_rect(
     width: float = 1.5,
 ) -> None:
     page = doc.page(page_index)
-    annot = page.add_rect_annot(fitz.Rect(*rect))
+    annot = page.add_rect_annot(_to_unrotated_rect(page, rect))
     annot.set_colors(stroke=color)
     annot.set_border(width=width)
     annot.update()
@@ -125,7 +164,7 @@ def add_ellipse(
     width: float = 1.5,
 ) -> None:
     page = doc.page(page_index)
-    annot = page.add_circle_annot(fitz.Rect(*rect))
+    annot = page.add_circle_annot(_to_unrotated_rect(page, rect))
     annot.set_colors(stroke=color)
     annot.set_border(width=width)
     annot.update()
@@ -142,7 +181,9 @@ def add_arrow(
 ) -> None:
     """Line annotation from *start* → *end* with arrow head at the end."""
     page = doc.page(page_index)
-    annot = page.add_line_annot(fitz.Point(*start), fitz.Point(*end))
+    annot = page.add_line_annot(
+        _to_unrotated_point(page, start), _to_unrotated_point(page, end)
+    )
     annot.set_colors(stroke=color)
     annot.set_border(width=width)
     annot.set_line_ends(fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_OPEN_ARROW)
@@ -162,7 +203,7 @@ def add_text_box(
     """Editable free-text annotation positioned within *rect*."""
     page = doc.page(page_index)
     annot = page.add_freetext_annot(
-        fitz.Rect(*rect), text, fontsize=fontsize, text_color=color
+        _to_unrotated_rect(page, rect), text, fontsize=fontsize, text_color=color
     )
     annot.update()
     doc.mark_modified()
