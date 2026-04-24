@@ -109,21 +109,57 @@ def find_words_in_rect(
     doc: Document, page_index: int, rect: Rect
 ) -> list[Rect]:
     """Return bounding rects of all words intersecting *rect* (rotated coords)
-    on *page_index*. Returned rects are also in rotated coords so callers can
-    feed them straight back into ``add_highlight`` etc.
+    on *page_index*. Consecutive words on the same line are MERGED into a
+    single rect so that the resulting highlight / underline / strikeout
+    appears as one continuous mark instead of a row of word-shaped boxes
+    with V-notches in the spaces between them.
+
+    Merging logic: words are grouped by ``(block_no, line_no)`` from
+    PyMuPDF's word tuple; within each line they are sorted by ``word_no``
+    and split into runs of consecutive ``word_no`` values; each run becomes
+    one merged rect spanning the run's full bbox.
     """
     page = doc.page(page_index)
     sel = fitz.Rect(*rect)
     # page.get_text("words") returns rects in rotated/visible coords for a
     # rotated page (PyMuPDF docs), so the intersection test is consistent
     # with how the user sees the text.
-    words = page.get_text("words")  # list of (x0, y0, x1, y1, "w", b, l, w_no)
-    out: list[Rect] = []
+    # Each tuple: (x0, y0, x1, y1, "word", block_no, line_no, word_no)
+    words = page.get_text("words")
+
+    # Group hit words by (block_no, line_no)
+    by_line: dict[tuple[int, int], list[tuple[float, float, float, float, int]]] = {}
     for w in words:
         x0, y0, x1, y1 = w[0], w[1], w[2], w[3]
-        if fitz.Rect(x0, y0, x1, y1).intersects(sel):
-            out.append((x0, y0, x1, y1))
+        if not fitz.Rect(x0, y0, x1, y1).intersects(sel):
+            continue
+        block_no, line_no, word_no = w[5], w[6], w[7]
+        by_line.setdefault((block_no, line_no), []).append(
+            (x0, y0, x1, y1, word_no)
+        )
+
+    out: list[Rect] = []
+    for line_words in by_line.values():
+        line_words.sort(key=lambda item: item[4])  # by word_no
+        # Split into consecutive-word_no runs
+        run: list[tuple[float, float, float, float, int]] = [line_words[0]]
+        for item in line_words[1:]:
+            if item[4] == run[-1][4] + 1:
+                run.append(item)
+            else:
+                out.append(_merge_run(run))
+                run = [item]
+        out.append(_merge_run(run))
     return out
+
+
+def _merge_run(run: list[tuple[float, float, float, float, int]]) -> Rect:
+    return (
+        min(w[0] for w in run),
+        min(w[1] for w in run),
+        max(w[2] for w in run),
+        max(w[3] for w in run),
+    )
 
 
 # ----------------------------------------------------------------- sticky note
