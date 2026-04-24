@@ -209,12 +209,14 @@ def add_text_box(
     unrotated baseline. (Sticky-note popup orientation is viewer-driven
     and cannot be controlled the same way.)
 
-    For page.rotation 0/90/180/270, the text rotation is set to 0/270/180/90
-    respectively — chosen so page-rotation × text-rotation = identity in
-    the rendered view.
+    PyMuPDF's ``rotate`` parameter is CCW; PDF page rotation is CW. To
+    cancel the page's CW rotation visually, the text rotation must be the
+    same number of degrees CCW — i.e. just pass ``page.rotation`` directly.
+    Setting ``rotate = (360 - page.rotation)`` (the obvious-looking math)
+    instead made text appear flipped 180° (verified on screen).
     """
     page = doc.page(page_index)
-    text_rotate = (360 - page.rotation) % 360
+    text_rotate = page.rotation
     annot = page.add_freetext_annot(
         _to_unrotated_rect(page, rect),
         text,

@@ -234,12 +234,14 @@ def test_freetext_rotation_counter_matches_page_rotation(tmp_path: Path) -> None
     d.close()
 
     # page_rotation → expected annot.rotation values (multiple OK because
-    # PyMuPDF stores 0 as -1 "unset")
+    # PyMuPDF stores 0 as -1 "unset"). PyMuPDF's rotate param is CCW
+    # while page rotation is CW; passing page.rotation directly cancels
+    # them visually (verified by user screenshot: 270 was upside-down).
     expected = {
         0: {0, -1},
-        90: {270},
+        90: {90},
         180: {180},
-        270: {90},
+        270: {270},
     }
     for page_rot, allowed in expected.items():
         with Document.open(pdf) as doc:
