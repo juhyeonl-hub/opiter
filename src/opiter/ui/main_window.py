@@ -1241,11 +1241,20 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid Page Range", str(exc))
             return
-        fmt, ok = QInputDialog.getItem(
-            self, "Image Format", "Format:", ["png", "jpg"], 0, False
-        )
-        if not ok:
+        # Use a QMessageBox with explicit buttons — the QInputDialog.getItem
+        # combobox popup sometimes stays open after selection under WSLg.
+        fmt_box = QMessageBox(self)
+        fmt_box.setWindowTitle("Image Format")
+        fmt_box.setText("Choose an output format:")
+        btn_png = fmt_box.addButton("PNG", QMessageBox.ButtonRole.AcceptRole)
+        btn_jpg = fmt_box.addButton("JPG", QMessageBox.ButtonRole.AcceptRole)
+        btn_cancel = fmt_box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        fmt_box.setDefaultButton(btn_png)
+        fmt_box.exec()
+        clicked = fmt_box.clickedButton()
+        if clicked is btn_cancel or clicked is None:
             return
+        fmt = "jpg" if clicked is btn_jpg else "png"
         out_dir = self._prompt_output_directory(
             f"{doc.path.stem}_images", "Image Export Directory"
         )
@@ -1253,7 +1262,7 @@ class MainWindow(QMainWindow):
             return
         try:
             paths = export_pages_as_images(
-                doc, indices, out_dir, doc.path.stem, fmt=fmt  # type: ignore[arg-type]
+                doc, indices, out_dir, doc.path.stem, fmt=fmt
             )
         except Exception as exc:
             QMessageBox.critical(self, "Export Failed", str(exc))

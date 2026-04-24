@@ -40,23 +40,34 @@ def add_text_watermark(
     )
     for idx in targets:
         page = doc.page(idx)
+        # ``rotate`` is the user's intended rotation *as seen* in the current
+        # page view. To cancel out the page's own rotation at render time,
+        # the annot stores (rotate + page.rotation) mod 360 in unrotated space.
+        effective_rotate = (rotate + page.rotation) % 360
+
+        # Position the rect using the visible page rect, then derotate so the
+        # annot's internal coords are in unrotated page space.
         rect = page.rect
         cx, cy = rect.width / 2, rect.height / 2
-        # Rect sized so horizontal/vertical text at the chosen rotation fits.
         if rotate in (90, 270):
             box_w, box_h = fontsize * 1.5, rect.height
         else:
             box_w, box_h = rect.width, fontsize * 1.5
-        wm_rect = fitz.Rect(
+        wm_rect_view = fitz.Rect(
             cx - box_w / 2, cy - box_h / 2,
             cx + box_w / 2, cy + box_h / 2,
         )
+        if page.rotation != 0:
+            wm_rect = wm_rect_view * page.derotation_matrix
+        else:
+            wm_rect = wm_rect_view
+
         annot = page.add_freetext_annot(
             wm_rect, text,
             fontsize=fontsize,
             text_color=color,
             align=1,  # center
-            rotate=rotate,
+            rotate=effective_rotate,
         )
         annot.set_opacity(opacity)
         annot.update()

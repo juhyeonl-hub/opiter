@@ -171,6 +171,22 @@ def test_text_watermark_valid_rotations_all_succeed(text_pdf: Path) -> None:
                 assert len(list(doc.page(i).annots())) == 1
 
 
+def test_text_watermark_on_rotated_page_uses_effective_rotate(
+    text_pdf: Path,
+) -> None:
+    """Regression: user's ``rotate`` argument is the visible-view rotation.
+    When the page is rotated, the annot's stored rotate must be the sum
+    (mod 360) so the rendered watermark matches the user's intent."""
+    with Document.open(text_pdf) as doc:
+        # Rotate page 0 by 90° and apply a "horizontal in my view" watermark
+        doc.page(0).set_rotation(90)
+        add_text_watermark(doc, "DRAFT", page_indices=[0], rotate=0)
+        page = doc.page(0)
+        annot = next(page.annots())
+        # rotate=0 (user view) + page.rotation=90  →  effective 90 on annot
+        assert annot.rotation == 90
+
+
 # -------------------------------------------------------- 9-5 metadata
 def test_metadata_round_trip(text_pdf: Path) -> None:
     with Document.open(text_pdf) as doc:
