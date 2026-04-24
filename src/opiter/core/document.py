@@ -167,12 +167,41 @@ class Document:
 
     # --------------------------------------------------------------- save
     def save(self) -> None:
-        """Save changes back to the original file (incremental write)."""
-        self._doc.save(
-            str(self.path),
-            incremental=True,
-            encryption=fitz.PDF_ENCRYPT_KEEP,
-        )
+        """Save changes back to the original file via an atomic full rewrite.
+
+        We deliberately avoid PyMuPDF's incremental save: if the document
+        was auto-repaired on open (which PyMuPDF does silently for many
+        slightly-malformed PDFs) incremental writes are rejected with
+        "Can't do incremental writes on a repaired file". A full rewrite
+        works in that case too. The trade-off is a slightly larger I/O
+        cost for big files; correctness wins.
+
+        Strategy: write to a sibling ``.saving`` temp file, close the
+        in-memory doc, atomically replace the original, reopen from disk.
+        On failure the original file is left untouched and the doc is
+        re-opened from it so the application stays in a usable state.
+        """
+        tmp = self.path.with_suffix(self.path.suffix + ".saving")
+        try:
+            self._doc.save(str(tmp))
+        except Exception:
+            if tmp.exists():
+                tmp.unlink()
+            raise
+        # Temp file is written; now swap.
+        self._doc.close()
+        try:
+            tmp.replace(self.path)
+        except Exception:
+            # Restore in-memory doc from the (unchanged) original.
+            try:
+                self._doc = fitz.open(self.path)
+            except Exception:
+                pass
+            if tmp.exists():
+                tmp.unlink()
+            raise
+        self._doc = fitz.open(self.path)
         self._modified = False
 
     def save_as(self, new_path: str | Path) -> None:

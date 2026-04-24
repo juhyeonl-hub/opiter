@@ -298,6 +298,41 @@ def test_move_page_persists_after_save(tmp_path: Path) -> None:
         assert _page_text(reopened, 3).startswith("Page 1")
 
 
+def test_save_writes_via_temp_and_atomic_replace(tmp_path: Path) -> None:
+    """Regression: save() must do a full atomic write (no incremental),
+    so that auto-repaired PDFs can also be saved.
+    """
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=2)
+    with Document.open(pdf) as doc:
+        doc.rotate_page(0, 90)
+        doc.save()
+        # The .saving temp file must NOT remain after a successful save.
+        assert not (pdf.with_suffix(pdf.suffix + ".saving")).exists()
+    with Document.open(pdf) as r:
+        assert r.page_rotation(0) == 90
+
+
+def test_save_does_not_corrupt_original_on_writefailure(tmp_path: Path) -> None:
+    """If the temp write fails the original must be untouched."""
+    import unittest.mock as mock
+
+    pdf = _make_pdf(tmp_path / "a.pdf", pages=2)
+    original_bytes = pdf.read_bytes()
+
+    with Document.open(pdf) as doc:
+        doc.rotate_page(0, 90)
+        # Force the temp save to fail
+        with mock.patch.object(
+            doc._doc, "save", side_effect=RuntimeError("boom")
+        ):
+            with pytest.raises(RuntimeError):
+                doc.save()
+        # Temp file cleaned up
+        assert not (pdf.with_suffix(pdf.suffix + ".saving")).exists()
+    # Original bytes intact
+    assert pdf.read_bytes() == original_bytes
+
+
 def test_save_after_save_as_does_not_raise(tmp_path: Path) -> None:
     """Regression: PyMuPDF's incremental save requires the document's
     internal source path to match the target path. After save_as, the
