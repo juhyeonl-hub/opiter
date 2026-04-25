@@ -1,11 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """DOCX viewer tab — read-only rendering via python-docx → basic HTML."""
 from __future__ import annotations
 
 import html as _html
 from pathlib import Path
 
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QTextEdit, QVBoxLayout
 
+from opiter.ui.cjk_font import cjk_family_chain
 from opiter.ui.editors.abstract_editor import AbstractEditor
 
 
@@ -95,6 +99,10 @@ class DOCXEditor(AbstractEditor):
         layout.setContentsMargins(0, 0, 0, 0)
         self._edit = QTextEdit()
         self._edit.setReadOnly(True)
+        font = QFont()
+        font.setFamilies(cjk_family_chain())
+        font.setPointSize(11)
+        self._edit.setFont(font)
         layout.addWidget(self._edit)
 
         self._path: Path | None = None

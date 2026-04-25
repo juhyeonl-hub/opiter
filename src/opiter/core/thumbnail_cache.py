@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Persistent thumbnail cache backed by ``XDG_CACHE_HOME/opiter/thumbnails/``.
 
 Cache key: SHA-1 of (resolved file path + mtime + page index + thumbnail width)
@@ -41,9 +43,13 @@ def cache_path_for(doc: Document, page_index: int, width: int) -> Path:
 
 def get_or_render(doc: Document, page_index: int, width: int) -> bytes:
     """Return PNG bytes for the page-thumbnail. Reads cache if present, else
-    renders and saves before returning."""
+    renders and saves before returning. Unsaved in-memory mutations (reorder,
+    rotate, annotate, etc.) bypass the cache so stale thumbnails are not
+    served — the cache is keyed on the file's mtime, which doesn't move
+    until save."""
+    bypass = doc.is_modified
     cache = cache_path_for(doc, page_index, width)
-    if cache.exists():
+    if not bypass and cache.exists():
         try:
             return cache.read_bytes()
         except OSError:
@@ -56,8 +62,9 @@ def get_or_render(doc: Document, page_index: int, width: int) -> bytes:
         fitz.csRGB, rp.width, rp.height, rp.samples, rp.has_alpha
     )
     png_bytes: bytes = pix.tobytes("png")
-    try:
-        cache.write_bytes(png_bytes)
-    except OSError:
-        pass  # cache write failure is non-fatal
+    if not bypass:
+        try:
+            cache.write_bytes(png_bytes)
+        except OSError:
+            pass  # cache write failure is non-fatal
     return png_bytes

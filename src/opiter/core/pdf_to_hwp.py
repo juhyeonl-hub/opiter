@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """PDF → HWP conversion (best-effort via LibreOffice + h2orestart).
 
 No pure-Python HWP writer exists. The strategy here is a two-hop

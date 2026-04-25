@@ -10,7 +10,7 @@ Build a **free, open-source, privacy-respecting document editor** that eventuall
 No ads. No subscriptions. No "premium" feature gates. If code-signing certificates or infrastructure require funding, it will come from voluntary donations — never paywalls.
 
 ### 2. Open Source
-MIT-licensed. All source on GitHub. Anyone can audit, fork, modify, redistribute.
+AGPL-3.0 licensed (driven by upstream PyMuPDF and pyhwp dependencies). All source on GitHub. Anyone can audit, fork, modify, and redistribute under the same license.
 
 ### 3. Privacy-First
 All file processing happens locally. No telemetry, no cloud uploads, no accounts. Your documents never leave your machine unless you explicitly share them.
@@ -34,10 +34,12 @@ Single codebase supporting Windows, macOS, and Linux via Qt for Python. No platf
 
 | Stage | Scope | Status |
 |-------|-------|--------|
-| MVP Prototype | Phase 1~3: PDF viewer + page ops + annotations | **🚧 In development** (current) |
-| Advanced PDF | Phase 4: image conversion, compression, watermark, metadata | 📋 Planned |
-| Multi-format | Phase 5+: DOCX, HWP, format conversion | 🔮 Long-term |
-| Distribution | Cross-platform builds, installer, code signing | 📋 Post-MVP |
+| MVP Prototype | Phase 1~3: PDF viewer + page ops + annotations | ✅ Done |
+| Advanced PDF | Phase 4: image conversion, compression, watermark, metadata | ✅ Done |
+| Multi-format | Phase 5: DOCX/HWP viewers + cross-format export | ✅ Done |
+| Distribution (v0.1) | Linux PyInstaller build, GitHub release | **🚧 In progress** (current) |
+| DOCX editor | Phase 6: rich-text DOCX editing | 📋 Planned |
+| Cross-platform builds | Win/Mac PyInstaller, code signing | 📋 Post v0.1 |
 
 See [FEATURES.md](./FEATURES.md) for phase-level feature details and [PROJECT_BRIEF.md](./PROJECT_BRIEF.md) for the current iteration's working brief.
 
@@ -56,4 +58,4 @@ These rules are non-negotiable and enforced at code-review time:
 1. **No reverse engineering** of Adobe Acrobat, Hancom Office, Microsoft Office, or any other commercial software. All format handling must derive from public specifications and OSS libraries.
 2. **No trademark infringement**. Do not use names like "Adobe", "Acrobat", "한글", "Office", "Word", or close variants in code, docs, or marketing.
 3. **No DRM-circumvention features**. We will not implement password-bypass, copy-protection removal, or similar.
-4. **License compatibility**. All dependencies must be license-compatible with MIT distribution. GPL-licensed dependencies are reviewed case-by-case and avoided when possible.
+4. **License compatibility**. All dependencies must be compatible with AGPL-3.0 distribution. Adding a more-restrictive or incompatible dependency requires explicit review.

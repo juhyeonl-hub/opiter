@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """PDF document metadata (title, author, subject, keywords, creator)."""
 from __future__ import annotations
 

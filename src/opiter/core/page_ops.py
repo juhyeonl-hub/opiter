@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Page-level operations that produce new files (extract, split).
 
 Unlike the mutating methods on :class:`Document` (rotate, delete, etc.),

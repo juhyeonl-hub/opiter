@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """User preferences — persisted as JSON at XDG_CONFIG_HOME/opiter/preferences.json.
 
 Schema is additive: unknown fields in the file are ignored on load so older

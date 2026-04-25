@@ -183,9 +183,9 @@ def test_clicking_existing_sticky_note_does_not_create_duplicate(qtbot, text_pdf
 
 
 def test_prompt_output_directory_creates_missing_path(qtbot, text_pdf, tmp_path):
-    """Regression: split output prompt must auto-mkdir non-existent paths
-    (the original QFileDialog.getExistingDirectory blocked Choose for
-    folders that didn't exist yet)."""
+    """Regression: split output prompt must auto-mkdir the path the user
+    picked in the directory dialog (defensive — the native dialog's
+    "New Folder" button usually creates it, but we don't rely on it)."""
     import unittest.mock as mock
     from opiter.ui import main_window as mw
 
@@ -197,7 +197,7 @@ def test_prompt_output_directory_creates_missing_path(qtbot, text_pdf, tmp_path)
     assert not target.exists()
 
     with mock.patch.object(
-        mw.QInputDialog, "getText", return_value=(str(target), True)
+        mw.QFileDialog, "getExistingDirectory", return_value=str(target)
     ):
         result = window._prompt_output_directory("default", "title")
 

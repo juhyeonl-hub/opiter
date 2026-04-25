@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Custom QLabel that hosts the rendered PDF page plus an interactive overlay.
 
 Responsibilities split with :class:`opiter.ui.viewer_widget.ViewerWidget`:

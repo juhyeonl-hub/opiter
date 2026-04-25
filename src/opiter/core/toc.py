@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Bookmarks / Table of Contents editing.
 
 PyMuPDF represents the TOC as a list of ``[level, title, page, ...]``

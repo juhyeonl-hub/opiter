@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Undo/Redo support backed by full-document snapshots.
 
 Each mutating operation pushes a :class:`SnapshotCommand` onto the

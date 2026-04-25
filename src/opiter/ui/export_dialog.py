@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Export dialog for PDF → DOCX / PDF → HWP (options + file picker)."""
 from __future__ import annotations
 

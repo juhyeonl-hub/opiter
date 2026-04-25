@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """XDG-compliant config and cache paths for Opiter.
 
 Honors ``XDG_CONFIG_HOME`` / ``XDG_CACHE_HOME`` when set, falling back

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Document model — wraps a fitz.Document with safe error handling.
 
 Owns the PyMuPDF open/close lifecycle and tracks a "modified" flag so

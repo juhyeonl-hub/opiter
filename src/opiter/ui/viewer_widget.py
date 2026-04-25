@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Page viewer widget — displays a single rendered PDF page in a scroll area."""
 from __future__ import annotations
 
@@ -65,13 +67,38 @@ class ViewerWidget(QScrollArea):
 
     # ----------------------------------------------------------- document ops
     def set_document(self, doc: Document) -> None:
-        """Replace the current document and render its first page."""
+        """Replace the current document and render its first page.
+        Closes the previous document if any (single-doc-owning callers)."""
         if self._doc is not None:
             self._doc.close()
         self._doc = doc
         self._current_page = 0
         self._render_current(scroll_to="top")
         self.page_changed.emit(self._current_page, self.page_count)
+
+    def swap_document(self, doc: Document) -> None:
+        """Switch which document the viewer renders WITHOUT closing the
+        previous one — used by the multi-PDF tab system where each tab
+        owns its own ``Document`` and lifecycle is handled at tab close."""
+        self._doc = doc
+        self._current_page = 0
+        self._render_current(scroll_to="top")
+        self.page_changed.emit(self._current_page, self.page_count)
+
+    def close_document(self) -> None:
+        """Release the current document and show an empty canvas."""
+        if self._doc is not None:
+            self._doc.close()
+        self.detach_document()
+
+    def detach_document(self) -> None:
+        """Drop the document reference and show an empty canvas WITHOUT
+        closing it — used when something else (a tab holder) owns the
+        document's lifecycle."""
+        self._doc = None
+        self._current_page = 0
+        self.page_canvas.clear_page()
+        self.page_changed.emit(0, 0)
 
     # ---------------------------------------------------------- navigation
     def goto_page(self, index: int, scroll_to: ScrollPosition = "top") -> None:
@@ -242,6 +269,13 @@ class ViewerWidget(QScrollArea):
             if self._current_highlight and self._current_highlight[0] == self._current_page
             else -1
         )
+        # Search results come back in unrotated PDF coordinates; the pixmap
+        # we draw on is already rotated to match the page's visible
+        # orientation, so rects must be transformed through the page's
+        # rotation matrix before scaling by zoom.
+        import fitz  # local import to avoid broadening module deps
+        page = self._doc.page(self._current_page) if self._doc else None
+        rot_matrix = page.rotation_matrix if page is not None else fitz.Matrix(1, 1)
         painter = QPainter(pixmap)
         try:
             painter.setPen(Qt.PenStyle.NoPen)
@@ -250,12 +284,13 @@ class ViewerWidget(QScrollArea):
                     QColor(255, 140, 0, 140) if i == cur_idx else QColor(255, 240, 0, 110)
                 )
                 painter.setBrush(color)
+                rot = fitz.Rect(x0, y0, x1, y1) * rot_matrix
                 painter.drawRect(
                     QRectF(
-                        x0 * self._zoom,
-                        y0 * self._zoom,
-                        (x1 - x0) * self._zoom,
-                        (y1 - y0) * self._zoom,
+                        rot.x0 * self._zoom,
+                        rot.y0 * self._zoom,
+                        (rot.x1 - rot.x0) * self._zoom,
+                        (rot.y1 - rot.y0) * self._zoom,
                     )
                 )
         finally:

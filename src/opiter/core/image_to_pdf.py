@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Create a PDF from a sequence of image files."""
 from __future__ import annotations
 

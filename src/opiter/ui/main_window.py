@@ -1,14 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Main application window: menus, toolbar, central viewer."""
 from __future__ import annotations
 
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QKeySequence,
+    QUndoGroup,
+    QUndoStack,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
-    QDockWidget,
     QFileDialog,
     QInputDialog,
     QLabel,
@@ -16,6 +23,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QSlider,
+    QSplitter,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -52,11 +60,48 @@ from opiter.ui.metadata_dialog import MetadataDialog
 from opiter.ui.page_canvas import ToolMode
 from opiter.ui.preferences_dialog import ColorEntry, KeymapEntry, PreferencesDialog
 from opiter.ui.search_bar import SearchBar
+from opiter.ui.smooth_tab_bar import SmoothTabBar
 from opiter.ui.theme import apply_dark, apply_light
 from opiter.ui.thumbnail_panel import ThumbnailPanel
 from opiter.ui.viewer_widget import ViewerWidget
 from opiter.ui.watermark_dialog import WatermarkDialog
 from opiter.utils.errors import CorruptedPDFError, EncryptedPDFError
+
+
+class _PDFTabHolder(QWidget):
+    """Per-PDF-tab state container.
+
+    The widget itself is a thin placeholder; the visible PDF chrome
+    (the splitter with thumbnails / viewer / bookmarks) is reparented
+    into this widget's layout when the tab becomes active. State that
+    has to survive tab switches (Document, undo stack, current page,
+    zoom, scroll, search, selection) lives on this object.
+    """
+
+    def __init__(self, doc: Document, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.doc: Document = doc
+        # Per-PDF undo stack — added to the window's QUndoGroup so the
+        # global undo/redo actions auto-route to whichever stack is
+        # active.
+        self.undo_stack: QUndoStack = QUndoStack()
+        self.undo_stack.setUndoLimit(30)
+        # Viewer state captured on tab deactivate, restored on activate.
+        self.current_page: int = 0
+        self.zoom: float = 1.0
+        self.scroll_x: int = 0
+        self.scroll_y: int = 0
+        # Search state
+        self.search_query: str = ""
+        self.search_results: list = []  # SearchMatch objects
+        self.search_current: int = -1
+        # POINTER selection state
+        self.selected_annot_xref: int | None = None
+        self.selected_annot_page: int | None = None
+        # Empty layout — chrome splitter is mounted here on activate.
+        self._holder_layout = QVBoxLayout(self)
+        self._holder_layout.setContentsMargins(0, 0, 0, 0)
+        self._holder_layout.setSpacing(0)
 
 
 class MainWindow(QMainWindow):
@@ -81,29 +126,45 @@ class MainWindow(QMainWindow):
         self._search_bar.prev_requested.connect(self._on_search_prev)
         self._search_bar.close_requested.connect(self._on_search_close)
 
-        # PDF tab content — viewer + inline search bar, matches prior behavior.
-        self._pdf_tab = QWidget(self)
-        _pdf_layout = QVBoxLayout(self._pdf_tab)
-        _pdf_layout.setContentsMargins(0, 0, 0, 0)
-        _pdf_layout.setSpacing(0)
-        _pdf_layout.addWidget(self._viewer, stretch=1)
-        _pdf_layout.addWidget(self._search_bar)
-
-        # Central area is a QTabWidget. PDF lives at index 0 and is always
-        # present. DOCX / HWP editors will be added as additional tabs in
-        # later Phase-5 sub-steps; see AbstractEditor for the interface.
-        self._tabs = QTabWidget(self)
-        self._tabs.setTabsClosable(True)
-        self._tabs.addTab(self._pdf_tab, "PDF")
-        self._tabs.setTabToolTip(0, "PDF editor (always open)")
-        # PDF tab is not closeable — remove its close button.
-        pdf_tab_bar = self._tabs.tabBar()
-        pdf_tab_bar.setTabButton(
-            0, pdf_tab_bar.ButtonPosition.RightSide, None  # type: ignore[arg-type]
+        # Two-level tab structure. Outer = format (PDF/DOCX/HWP); inner =
+        # files within that format. Format tabs are added only when a file
+        # of that type is open, and removed when the last one closes.
+        # PDF inner tabs are :class:`_PDFTabHolder` widgets — empty
+        # placeholders that own per-document state (Document, undo stack,
+        # zoom/scroll/page); the visible PDF chrome (splitter with
+        # thumbs / viewer / bookmarks) is reparented into whichever
+        # holder is active so we only render one PDF at a time.
+        self._pdf_file_tabs = QTabWidget(self)
+        self._pdf_file_tabs.setTabBar(SmoothTabBar(self._pdf_file_tabs))
+        self._pdf_file_tabs.setTabsClosable(True)
+        self._pdf_file_tabs.setMovable(True)
+        self._pdf_file_tabs.tabCloseRequested.connect(self._on_pdf_tab_close)
+        self._pdf_file_tabs.currentChanged.connect(
+            self._on_pdf_inner_tab_changed
         )
-        self._tabs.tabCloseRequested.connect(self._on_tab_close_requested)
-        self._tabs.currentChanged.connect(self._on_tab_changed)
-        self.setCentralWidget(self._tabs)
+        # Tracks the holder currently mounted in the PDF chrome. Used to
+        # save state out of the viewer before swapping to a new tab.
+        self._active_pdf_holder: _PDFTabHolder | None = None
+
+        self._docx_file_tabs = QTabWidget(self)
+        self._docx_file_tabs.setTabBar(SmoothTabBar(self._docx_file_tabs))
+        self._docx_file_tabs.setTabsClosable(True)
+        self._docx_file_tabs.setMovable(True)
+        self._docx_file_tabs.tabCloseRequested.connect(self._on_docx_tab_close)
+
+        self._hwp_file_tabs = QTabWidget(self)
+        self._hwp_file_tabs.setTabBar(SmoothTabBar(self._hwp_file_tabs))
+        self._hwp_file_tabs.setTabsClosable(True)
+        self._hwp_file_tabs.setMovable(True)
+        self._hwp_file_tabs.tabCloseRequested.connect(self._on_hwp_tab_close)
+
+        self._format_tabs = QTabWidget(self)
+        self._format_tabs.setTabBar(SmoothTabBar(self._format_tabs))
+        self._format_tabs.setTabsClosable(True)
+        self._format_tabs.setMovable(True)
+        self._format_tabs.currentChanged.connect(self._on_format_changed)
+        self._format_tabs.tabCloseRequested.connect(self._on_format_tab_close)
+        self.setCentralWidget(self._format_tabs)
 
         self._search_results: list[SearchMatch] = []
         self._search_current: int = -1
@@ -123,8 +184,10 @@ class MainWindow(QMainWindow):
         self._selected_annot_page: int | None = None
 
         # Undo/redo
-        self._undo_stack = QUndoStack(self)
-        self._undo_stack.setUndoLimit(30)
+        # Each open PDF gets its own QUndoStack added to this group; the
+        # group's createUndoAction wires the menu item to whatever stack
+        # is currently active, so tab switches don't need to rewire.
+        self._undo_group = QUndoGroup(self)
 
         self._thumb_panel = ThumbnailPanel(
             self, thumb_width=self._prefs.thumbnail_width_px
@@ -143,33 +206,43 @@ class MainWindow(QMainWindow):
         self._thumb_size_slider.setToolTip("Thumbnail size")
         self._thumb_size_slider.valueChanged.connect(self._on_thumb_size_changed)
 
-        _dock_container = QWidget(self)
-        _dock_layout = QVBoxLayout(_dock_container)
-        _dock_layout.setContentsMargins(4, 4, 4, 4)
-        _dock_layout.setSpacing(4)
-        _dock_layout.addWidget(self._thumb_size_slider)
-        _dock_layout.addWidget(self._thumb_panel, stretch=1)
+        # Thumbnail container (slider + list) lives inside the PDF tab,
+        # not as a QDockWidget around the central area — that way the
+        # outer format-tab line stays at a fixed position and panels
+        # appear under it instead of beside the whole window.
+        self._thumb_container = QWidget(self)
+        _thumb_layout = QVBoxLayout(self._thumb_container)
+        _thumb_layout.setContentsMargins(4, 4, 4, 4)
+        _thumb_layout.setSpacing(4)
+        _thumb_layout.addWidget(self._thumb_size_slider)
+        _thumb_layout.addWidget(self._thumb_panel, stretch=1)
 
-        self._thumb_dock = QDockWidget("Pages", self)
-        self._thumb_dock.setObjectName("ThumbnailsDock")
-        self._thumb_dock.setWidget(_dock_container)
-        self._thumb_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
-        )
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._thumb_dock)
-
-        # Bookmarks dock (Phase 4: 9-6)
+        # Bookmarks panel (Phase 4: 9-6) — also inline, hidden by default.
         self._bookmarks_panel = BookmarksPanel(self)
         self._bookmarks_panel.page_jump_requested.connect(self._viewer.goto_page)
         self._bookmarks_panel.toc_changed.connect(self._on_toc_changed)
-        self._bookmarks_dock = QDockWidget("Bookmarks", self)
-        self._bookmarks_dock.setObjectName("BookmarksDock")
-        self._bookmarks_dock.setWidget(self._bookmarks_panel)
-        self._bookmarks_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
-        )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._bookmarks_dock)
-        self._bookmarks_dock.hide()  # hidden by default; toggle via View menu
+        self._bookmarks_panel.hide()
+
+        # The "PDF chrome" (thumbs | viewer+searchbar | bookmarks) is a
+        # free-floating splitter — it gets reparented into whichever PDF
+        # inner tab (a :class:`_PDFTabHolder`) is currently active.
+        _viewer_holder = QWidget(self)
+        _viewer_layout = QVBoxLayout(_viewer_holder)
+        _viewer_layout.setContentsMargins(0, 0, 0, 0)
+        _viewer_layout.setSpacing(0)
+        _viewer_layout.addWidget(self._viewer, stretch=1)
+        _viewer_layout.addWidget(self._search_bar)
+
+        self._pdf_splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        self._pdf_splitter.addWidget(self._thumb_container)
+        self._pdf_splitter.addWidget(_viewer_holder)
+        self._pdf_splitter.addWidget(self._bookmarks_panel)
+        self._pdf_splitter.setStretchFactor(0, 0)
+        self._pdf_splitter.setStretchFactor(1, 1)
+        self._pdf_splitter.setStretchFactor(2, 0)
+        self._pdf_splitter.setSizes([200, 800, 220])
+        # Hidden until mounted into an active holder.
+        self._pdf_splitter.hide()
 
         self._page_indicator = QLabel("—")
         self._page_indicator.setMinimumWidth(80)
@@ -186,6 +259,8 @@ class MainWindow(QMainWindow):
         self._apply_keymap_overrides()
         self._build_menus()
         self._build_toolbar()
+        # No document open on startup — apply the "nothing-open" visual state.
+        self._on_format_changed(self._format_tabs.currentIndex())
         self.statusBar().showMessage("Ready")
         self._update_action_states()
         self._apply_loaded_preferences()
@@ -278,12 +353,18 @@ class MainWindow(QMainWindow):
         self._action_fit_width.setShortcut(QKeySequence("Ctrl+2"))
         self._action_fit_width.triggered.connect(self._viewer.fit_width)
 
-        self._action_toggle_thumbs = self._thumb_dock.toggleViewAction()
-        self._action_toggle_thumbs.setText("Show &Thumbnails")
+        self._action_toggle_thumbs = QAction("Show &Thumbnails", self)
+        self._action_toggle_thumbs.setCheckable(True)
+        self._action_toggle_thumbs.setChecked(True)
         self._action_toggle_thumbs.setShortcut(QKeySequence(Qt.Key.Key_F4))
+        self._action_toggle_thumbs.toggled.connect(self._thumb_container.setVisible)
 
-        self._action_toggle_bookmarks = self._bookmarks_dock.toggleViewAction()
-        self._action_toggle_bookmarks.setText("Show &Bookmarks")
+        self._action_toggle_bookmarks = QAction("Show &Bookmarks", self)
+        self._action_toggle_bookmarks.setCheckable(True)
+        self._action_toggle_bookmarks.setChecked(False)
+        self._action_toggle_bookmarks.toggled.connect(
+            self._bookmarks_panel.setVisible
+        )
         self._action_toggle_bookmarks.setShortcut(QKeySequence(Qt.Key.Key_F5))
 
         self._action_dark_mode = QAction("&Dark Mode", self)
@@ -344,9 +425,9 @@ class MainWindow(QMainWindow):
 
         # Undo / Redo come from the stack so their text auto-includes the
         # command label, and they enable/disable correctly.
-        self._action_undo = self._undo_stack.createUndoAction(self, "&Undo")
+        self._action_undo = self._undo_group.createUndoAction(self, "&Undo")
         self._action_undo.setShortcut(QKeySequence.StandardKey.Undo)
-        self._action_redo = self._undo_stack.createRedoAction(self, "&Redo")
+        self._action_redo = self._undo_group.createRedoAction(self, "&Redo")
         self._action_redo.setShortcuts(
             [QKeySequence.StandardKey.Redo, QKeySequence("Ctrl+Y")]
         )
@@ -497,6 +578,18 @@ class MainWindow(QMainWindow):
         help_menu.addAction(self._action_about)
 
     def _build_toolbar(self) -> None:
+        # ---------------------------------------------------- Welcome (empty)
+        welcome_toolbar = self.addToolBar("Welcome")
+        welcome_toolbar.setObjectName("WelcomeToolbar")
+        welcome_toolbar.setMovable(False)
+        welcome_toolbar.addAction(self._action_open)
+        welcome_toolbar.addSeparator()
+        welcome_toolbar.addWidget(
+            QLabel("No document — File → Open (Ctrl+O) to begin.")
+        )
+        self._welcome_toolbar = welcome_toolbar
+
+        # ------------------------------------------------------------- PDF
         toolbar = self.addToolBar("Main")
         toolbar.setObjectName("MainToolbar")
         toolbar.setMovable(False)
@@ -509,6 +602,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._action_zoom_out)
         toolbar.addWidget(self._zoom_indicator)
         toolbar.addAction(self._action_zoom_in)
+        self._main_toolbar = toolbar
 
         # Annotation tools get their own toolbar below the main one.
         anno_toolbar = self.addToolBar("Annotate")
@@ -532,10 +626,32 @@ class MainWindow(QMainWindow):
         anno_toolbar.addAction(self._action_delete_selected_annot)
         self._anno_toolbar = anno_toolbar
 
+        # ------------------------------------------------------------- DOCX
+        docx_toolbar = self.addToolBar("DOCX")
+        docx_toolbar.setObjectName("DocxToolbar")
+        docx_toolbar.setMovable(False)
+        docx_toolbar.addAction(self._action_open)
+        docx_toolbar.addSeparator()
+        docx_toolbar.addWidget(QLabel("DOCX viewer — read-only (MVP)"))
+        self._docx_toolbar = docx_toolbar
+        docx_toolbar.hide()
+
+        # ------------------------------------------------------------- HWP
+        hwp_toolbar = self.addToolBar("HWP")
+        hwp_toolbar.setObjectName("HwpToolbar")
+        hwp_toolbar.setMovable(False)
+        hwp_toolbar.addAction(self._action_open)
+        hwp_toolbar.addSeparator()
+        hwp_toolbar.addWidget(QLabel("HWP viewer — text-only (MVP)"))
+        self._hwp_toolbar = hwp_toolbar
+        hwp_toolbar.hide()
+
     # ----------------------------------------------------------------- slots
     def _on_open(self) -> None:
-        if not self._confirm_discard_if_modified():
-            return
+        # Don't prompt about unsaved PDF changes here — DOCX/HWP files
+        # spawn a new tab without touching the open PDF, so the prompt
+        # would be misleading. ``_open_path`` will prompt only when the
+        # picked file is a PDF that would replace the current document.
         path_str, _ = QFileDialog.getOpenFileName(
             self,
             "Open Document",
@@ -545,7 +661,7 @@ class MainWindow(QMainWindow):
         )
         if not path_str:
             return
-        self._open_path(path_str, confirm_discard=False)
+        self._open_path(path_str, confirm_discard=True)
 
     def _open_path(self, path_str: str, *, confirm_discard: bool = True) -> None:
         """Load a document at *path_str*. PDF replaces the PDF tab; DOCX
@@ -559,8 +675,23 @@ class MainWindow(QMainWindow):
             self._open_hwp_tab(path_str)
             return
 
-        if confirm_discard and not self._confirm_discard_if_modified():
-            return
+        # PDF dedup: if the same file is already open in some inner tab,
+        # focus it instead of loading a second copy.
+        try:
+            target = Path(path_str).resolve()
+        except OSError:
+            target = Path(path_str)
+        for i in range(self._pdf_file_tabs.count()):
+            holder = self._pdf_file_tabs.widget(i)
+            if isinstance(holder, _PDFTabHolder):
+                try:
+                    cur = holder.doc.path.resolve()
+                except OSError:
+                    cur = holder.doc.path
+                if cur == target:
+                    self._pdf_file_tabs.setCurrentIndex(i)
+                    self._format_tabs.setCurrentWidget(self._pdf_file_tabs)
+                    return
         doc: Document | None = None
         password: str | None = None
         for _ in range(4):  # original attempt + up to 3 password retries
@@ -595,16 +726,15 @@ class MainWindow(QMainWindow):
         if doc is None:
             return
 
-        self._thumb_panel.set_document(doc)
-        self._viewer.set_document(doc)
-        self._thumb_panel.select_page(self._viewer.current_page)
-        self._reset_search_state()
-        self._clear_annot_selection()
-        self._undo_stack.clear()
-        self._refresh_bookmarks_panel()
-        self._refresh_title()
-        self._update_action_states()
-        # Update recent files (front of MRU) and refresh submenu
+        # New holder for this document.
+        holder = _PDFTabHolder(doc, self)
+        self._undo_group.addStack(holder.undo_stack)
+        self._ensure_format_tab(self._pdf_file_tabs, "PDF")
+        self._format_tabs.setCurrentWidget(self._pdf_file_tabs)
+        idx = self._pdf_file_tabs.addTab(holder, doc.path.name)
+        # setCurrentIndex fires _on_pdf_inner_tab_changed which mounts
+        # the chrome and loads state into the viewer.
+        self._pdf_file_tabs.setCurrentIndex(idx)
         prefs_mod.push_recent_file(self._prefs, path_str)
         self._rebuild_recent_menu()
         self.statusBar().showMessage(f"Loaded {doc.page_count} page(s)")
@@ -848,29 +978,29 @@ class MainWindow(QMainWindow):
     def _prompt_output_directory(
         self, default_name: str, dialog_title: str
     ) -> str | None:
-        """Ask the user for an output directory; create it if missing.
+        """Ask the user for an output directory via the native file browser.
 
-        Avoids QFileDialog.getExistingDirectory because that only allows
-        selecting existing folders (the Choose button stays disabled when
-        the user types a non-existent name) — the Qt "Create New Folder"
-        button is too easy to miss.
+        Opens ``QFileDialog.getExistingDirectory`` — it lets the user
+        navigate the filesystem and create a new folder with the dialog's
+        "New Folder" button. If the chosen directory doesn't yet exist it
+        is created here (defensive).
 
         Returns the absolute path string, or ``None`` if the user
         cancelled or directory creation failed.
         """
         doc = self._viewer._doc  # noqa: SLF001
-        suggested = (
+        start_dir = (
             str(doc.path.parent / default_name) if doc is not None else default_name
         )
-        out_str, ok = QInputDialog.getText(
+        out_str = QFileDialog.getExistingDirectory(
             self,
             dialog_title,
-            "Output directory (will be created if missing):",
-            text=suggested,
+            start_dir,
+            QFileDialog.Option.ShowDirsOnly,
         )
-        if not ok or not out_str.strip():
+        if not out_str:
             return None
-        out_path = Path(out_str.strip()).expanduser()
+        out_path = Path(out_str).expanduser()
         try:
             out_path.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -1113,13 +1243,20 @@ class MainWindow(QMainWindow):
         self._refresh_title()
         self._update_action_states()
 
+    @property
+    def _undo_stack(self) -> QUndoStack | None:
+        """The currently-active QUndoStack (per-PDF). ``None`` when no
+        PDF is open."""
+        return self._undo_group.activeStack()
+
     def _push_undo(self, label: str, apply_fn) -> None:
         """Wrap a mutating operation as an undo-able snapshot command."""
         doc = self._viewer._doc  # noqa: SLF001
-        if doc is None:
+        stack = self._undo_stack
+        if doc is None or stack is None:
             return
         cmd = SnapshotCommand(label, doc, apply_fn, self._refresh_after_annotation)
-        self._undo_stack.push(cmd)
+        stack.push(cmd)
 
     def _on_text_drag_finished(
         self, tool_value: int, pdf_rect: tuple[float, float, float, float]
@@ -1338,7 +1475,33 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Exported to HWP.", 5000)
 
     # =============================================================== Phase 5 tabs
+    def _focus_existing_tab(
+        self, inner: QTabWidget, target: Path
+    ) -> bool:
+        """If *target* is already open in *inner*, switch focus to it
+        and return True; otherwise return False."""
+        try:
+            target_resolved = target.resolve()
+        except OSError:
+            target_resolved = target
+        for i in range(inner.count()):
+            editor = inner.widget(i)
+            cur = getattr(editor, "file_path", lambda: None)()
+            if cur is None:
+                continue
+            try:
+                cur_resolved = Path(cur).resolve()
+            except OSError:
+                cur_resolved = Path(cur)
+            if cur_resolved == target_resolved:
+                inner.setCurrentIndex(i)
+                self._format_tabs.setCurrentWidget(inner)
+                return True
+        return False
+
     def _open_docx_tab(self, path_str: str) -> None:
+        if self._focus_existing_tab(self._docx_file_tabs, Path(path_str)):
+            return
         editor = DOCXEditor()
         editor.status_message.connect(
             lambda msg, ms: self.statusBar().showMessage(msg, ms)
@@ -1349,11 +1512,16 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Cannot Open DOCX", str(exc))
             editor.deleteLater()
             return
-        self._add_non_pdf_tab(editor, Path(path_str).name, icon="📝")
+        self._ensure_format_tab(self._docx_file_tabs, "DOCX")
+        idx = self._docx_file_tabs.addTab(editor, Path(path_str).name)
+        self._docx_file_tabs.setCurrentIndex(idx)
+        self._format_tabs.setCurrentWidget(self._docx_file_tabs)
         prefs_mod.push_recent_file(self._prefs, path_str)
         self._rebuild_recent_menu()
 
     def _open_hwp_tab(self, path_str: str) -> None:
+        if self._focus_existing_tab(self._hwp_file_tabs, Path(path_str)):
+            return
         editor = HWPEditor()
         editor.status_message.connect(
             lambda msg, ms: self.statusBar().showMessage(msg, ms)
@@ -1364,27 +1532,185 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Cannot Open HWP", str(exc))
             editor.deleteLater()
             return
-        self._add_non_pdf_tab(editor, Path(path_str).name, icon="📄")
+        self._ensure_format_tab(self._hwp_file_tabs, "HWP")
+        idx = self._hwp_file_tabs.addTab(editor, Path(path_str).name)
+        self._hwp_file_tabs.setCurrentIndex(idx)
+        self._format_tabs.setCurrentWidget(self._hwp_file_tabs)
         prefs_mod.push_recent_file(self._prefs, path_str)
         self._rebuild_recent_menu()
 
-    def _add_non_pdf_tab(
-        self, editor: QWidget, title: str, icon: str = ""
-    ) -> None:
-        label = f"{icon} {title}" if icon else title
-        idx = self._tabs.addTab(editor, label)
-        self._tabs.setCurrentIndex(idx)
+    def _ensure_format_tab(self, inner: QTabWidget, label: str) -> None:
+        """Add *inner* as a format tab on the outer bar if absent."""
+        if self._format_tabs.indexOf(inner) == -1:
+            self._format_tabs.addTab(inner, label)
 
-    def _on_tab_close_requested(self, index: int) -> None:
-        """User clicked a tab's × button. PDF tab is protected (no button),
-        so this only fires for DOCX/HWP tabs added in later sub-steps."""
-        if index == 0:
-            return  # PDF tab is not closeable
-        widget = self._tabs.widget(index)
-        self._tabs.removeTab(index)
+    def _on_pdf_inner_tab_changed(self, idx: int) -> None:
+        """Mount the PDF chrome into the newly active inner tab,
+        saving state out of the previously active one first."""
+        new_holder = (
+            self._pdf_file_tabs.widget(idx)
+            if idx != -1 else None
+        )
+        if not isinstance(new_holder, _PDFTabHolder):
+            new_holder = None
+
+        # Save state of the previously active holder.
+        if self._active_pdf_holder is not None:
+            self._save_active_pdf_state()
+            # Detach chrome from old holder so it can move.
+            old_layout = self._active_pdf_holder.layout()
+            if old_layout is not None:
+                old_layout.removeWidget(self._pdf_splitter)
+            self._pdf_splitter.setParent(self)
+            self._pdf_splitter.hide()
+
+        self._active_pdf_holder = new_holder
+
+        if new_holder is None:
+            # No PDF — reset viewer/panels but DON'T close any doc; the
+            # holder that owned it already closed it on tab close.
+            self._viewer.detach_document()
+            self._thumb_panel.clear()
+            self._thumb_panel._current_doc = None  # noqa: SLF001
+            self._reset_search_state()
+            self._clear_annot_selection()
+            self._refresh_bookmarks_panel()
+            self._refresh_title()
+            self._update_action_states()
+            return
+
+        # Mount chrome into the new holder.
+        new_holder.layout().addWidget(self._pdf_splitter)
+        self._pdf_splitter.show()
+        self._undo_group.setActiveStack(new_holder.undo_stack)
+        self._load_pdf_state(new_holder)
+
+    def _save_active_pdf_state(self) -> None:
+        """Capture viewer / search / selection state into the active holder."""
+        h = self._active_pdf_holder
+        if h is None:
+            return
+        h.current_page = self._viewer.current_page
+        h.zoom = self._viewer.zoom
+        h.scroll_x = self._viewer.horizontalScrollBar().value()
+        h.scroll_y = self._viewer.verticalScrollBar().value()
+        h.search_query = self._search_bar.query()
+        h.search_results = list(self._search_results)
+        h.search_current = self._search_current
+        h.selected_annot_xref = self._selected_annot_xref
+        h.selected_annot_page = self._selected_annot_page
+
+    def _load_pdf_state(self, h: "_PDFTabHolder") -> None:
+        """Restore *h*'s saved state into the shared chrome."""
+        # Document → viewer + thumbnails. Use swap_document so we don't
+        # close the previously-active holder's doc — it's still owned by
+        # whatever tab we just left.
+        self._viewer.swap_document(h.doc)
+        self._thumb_panel.set_document(h.doc)
+        self._viewer.goto_page(h.current_page)
+        self._viewer.set_zoom(h.zoom)
+        self._viewer.horizontalScrollBar().setValue(h.scroll_x)
+        self._viewer.verticalScrollBar().setValue(h.scroll_y)
+        self._thumb_panel.select_page(h.current_page)
+        # Search — restore results but leave the bar hidden; user reopens
+        # via Ctrl+F when needed.
+        self._search_results = list(h.search_results)
+        self._search_current = h.search_current
+        # Selection
+        self._selected_annot_xref = h.selected_annot_xref
+        self._selected_annot_page = h.selected_annot_page
+        # Bookmarks panel + title + actions
+        self._refresh_bookmarks_panel()
+        self._refresh_title()
+        self._update_action_states()
+
+    def _on_pdf_tab_close(self, index: int) -> None:
+        """Close one PDF inner tab. Asks about unsaved changes, releases
+        the document, removes the holder. If it was the last PDF, the
+        PDF format tab is also removed."""
+        holder = self._pdf_file_tabs.widget(index)
+        if not isinstance(holder, _PDFTabHolder):
+            return
+        if holder.doc.is_modified:
+            ret = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                f"{holder.doc.path.name} has unsaved changes. Save before closing?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+            )
+            if ret == QMessageBox.StandardButton.Cancel:
+                return
+            if ret == QMessageBox.StandardButton.Save:
+                # Save in place via the document's path.
+                try:
+                    holder.doc.save_as(holder.doc.path)
+                except Exception as exc:
+                    QMessageBox.critical(
+                        self, "Save Failed", str(exc)
+                    )
+                    return
+
+        is_active = holder is self._active_pdf_holder
+        if is_active:
+            # Detach chrome before removing the holder so it doesn't get
+            # destroyed as the holder's child widget.
+            old_layout = holder.layout()
+            if old_layout is not None:
+                old_layout.removeWidget(self._pdf_splitter)
+            self._pdf_splitter.setParent(self)
+            self._pdf_splitter.hide()
+            self._active_pdf_holder = None
+
+        self._undo_group.removeStack(holder.undo_stack)
+        self._pdf_file_tabs.removeTab(index)
+        try:
+            holder.doc.close()
+        except Exception:
+            pass
+        holder.deleteLater()
+
+        if self._pdf_file_tabs.count() == 0:
+            outer = self._format_tabs.indexOf(self._pdf_file_tabs)
+            if outer != -1:
+                self._format_tabs.removeTab(outer)
+            # _on_pdf_inner_tab_changed will fire with idx=-1 and clean up.
+        elif is_active:
+            # Switch to the new current tab so chrome remounts.
+            new_idx = self._pdf_file_tabs.currentIndex()
+            self._on_pdf_inner_tab_changed(new_idx)
+
+    def _on_docx_tab_close(self, index: int) -> None:
+        self._close_inner_tab(self._docx_file_tabs, index)
+
+    def _on_hwp_tab_close(self, index: int) -> None:
+        self._close_inner_tab(self._hwp_file_tabs, index)
+
+    def _on_format_tab_close(self, index: int) -> None:
+        """Closing a format tab closes every file under it. Routes to the
+        same per-file handlers so unsaved-PDF prompts and resource cleanup
+        still run."""
+        widget = self._format_tabs.widget(index)
+        if widget is self._pdf_file_tabs:
+            # Single PDF — same path as the inner × on the PDF.
+            self._on_pdf_tab_close(0)
+            return
+        if widget is self._docx_file_tabs:
+            inner = self._docx_file_tabs
+        elif widget is self._hwp_file_tabs:
+            inner = self._hwp_file_tabs
+        else:
+            return
+        # _close_inner_tab removes the format tab itself once the inner
+        # count hits 0, so we just keep popping index 0.
+        while inner.count() > 0:
+            self._close_inner_tab(inner, 0)
+
+    def _close_inner_tab(self, inner: QTabWidget, index: int) -> None:
+        widget = inner.widget(index)
+        inner.removeTab(index)
         if widget is not None:
-            # If the widget implements the editor interface, give it a chance
-            # to release any held resources.
             close = getattr(widget, "close_document", None)
             if callable(close):
                 try:
@@ -1392,15 +1718,30 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             widget.deleteLater()
+        # Remove the format tab entirely when it has no files left.
+        if inner.count() == 0:
+            outer_idx = self._format_tabs.indexOf(inner)
+            if outer_idx != -1:
+                self._format_tabs.removeTab(outer_idx)
 
-    def _on_tab_changed(self, index: int) -> None:
-        """Hide or show PDF-only docks depending on which tab is active."""
-        is_pdf = index == 0
-        # Thumbnails / bookmarks belong to the PDF document model.
-        self._thumb_dock.setVisible(is_pdf and self._prefs.dock_visible)
-        self._bookmarks_dock.setVisible(
-            is_pdf and self._bookmarks_dock.isVisible()
-        )
+    def _on_format_changed(self, index: int) -> None:
+        """Swap toolbars and PDF-only docks based on the active format tab.
+        When no format tab exists (index == -1), hide everything and show
+        the always-on welcome toolbar so the user can still open a file."""
+        widget = self._format_tabs.widget(index) if index != -1 else None
+        is_pdf = widget is self._pdf_file_tabs
+        is_docx = widget is self._docx_file_tabs
+        is_hwp = widget is self._hwp_file_tabs
+        nothing_open = widget is None
+
+        self._welcome_toolbar.setVisible(nothing_open)
+        self._main_toolbar.setVisible(is_pdf)
+        self._anno_toolbar.setVisible(is_pdf)
+        self._docx_toolbar.setVisible(is_docx)
+        self._hwp_toolbar.setVisible(is_hwp)
+        # Thumbnail/bookmark panels live inside the PDF tab content now,
+        # so their visibility is owned by the toggle actions, not the
+        # format-tab change. Nothing to do here.
 
     # =============================================================== Phase 4
     def _on_export_images(self) -> None:
@@ -1471,10 +1812,11 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Conversion Failed", str(exc))
             return
-        QMessageBox.information(
-            self, "PDF Created",
-            f"Combined {len(paths)} image(s) into:\n{out}",
+        self.statusBar().showMessage(
+            f"Combined {len(paths)} image(s) into {out}", 5000
         )
+        # Open the freshly-created PDF so the user can verify the result.
+        self._open_path(str(out), confirm_discard=False)
 
     def _on_compress(self) -> None:
         doc = self._viewer._doc  # noqa: SLF001
@@ -1652,9 +1994,18 @@ class MainWindow(QMainWindow):
         doc = self._viewer._doc  # noqa: SLF001
         if doc is None:
             self.setWindowTitle("Opiter")
+            self._update_action_states()
             return
         marker = " *" if doc.is_modified else ""
         self.setWindowTitle(f"Opiter — {doc.path.name}{marker}")
+        # Update the inner tab label for the active holder.
+        h = self._active_pdf_holder
+        if h is not None:
+            idx = self._pdf_file_tabs.indexOf(h)
+            if idx != -1:
+                self._pdf_file_tabs.setTabText(
+                    idx, f"{doc.path.name}{marker}"
+                )
         self._update_action_states()
 
     def _confirm_discard_if_modified(self) -> bool:
@@ -1805,14 +2156,9 @@ class MainWindow(QMainWindow):
         # Dark mode
         if self._prefs.dark_mode:
             self._action_dark_mode.setChecked(True)  # triggers toggled → apply_dark
-        # Dock visibility + area
+        # Thumbnail panel visibility persists across sessions.
         if not self._prefs.dock_visible:
-            self._thumb_dock.hide()
-        if self._prefs.dock_area == "right":
-            self.removeDockWidget(self._thumb_dock)
-            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._thumb_dock)
-            if self._prefs.dock_visible:
-                self._thumb_dock.show()
+            self._action_toggle_thumbs.setChecked(False)
         # Maximized state takes precedence over size/pos if set
         if self._prefs.window_maximized:
             self.showMaximized()
@@ -1831,10 +2177,7 @@ class MainWindow(QMainWindow):
             self._prefs.window_height = self.height()
             self._prefs.window_x = self.x()
             self._prefs.window_y = self.y()
-        self._prefs.dock_visible = self._thumb_dock.isVisible()
-        dock_area = self.dockWidgetArea(self._thumb_dock)
-        if dock_area == Qt.DockWidgetArea.RightDockWidgetArea:
-            self._prefs.dock_area = "right"
-        else:
-            self._prefs.dock_area = "left"
+        self._prefs.dock_visible = self._action_toggle_thumbs.isChecked()
+        # dock_area legacy field — left as-is; not used now that the panel
+        # lives inside the PDF tab content.
         self._prefs.dark_mode = self._action_dark_mode.isChecked()

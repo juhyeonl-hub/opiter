@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Page rendering — produces raw image bytes from a PDF page.
 
 This module deliberately does not depend on Qt: callers in ``ui/`` adapt

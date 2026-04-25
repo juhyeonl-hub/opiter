@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Application-wide theme switching (light and dark).
 
 Built on ``QPalette`` so all standard Qt widgets pick up the new colors

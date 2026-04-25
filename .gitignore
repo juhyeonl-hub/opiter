@@ -6,8 +6,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/dist/
-build/*.spec
+build/
 develop-eggs/
 dist/
 downloads/
@@ -72,3 +71,16 @@ temp/
 
 # User-local sample PDFs (keep tracked samples in samples/, ignore user dumps)
 samples/local/
+
+# Manual test outputs from user-driven validation runs
+samples/hello_*.pdf
+samples/hello_*/
+samples/test_*.pdf
+samples/saveas_*.pdf
+samples/tonghap_*.pdf
+samples/test/
+samples/dddd*
+samples/테스트/
+
+# User-supplied HWP samples — license unclear, supply your own for testing.
+samples/*.hwp

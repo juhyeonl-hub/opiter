@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Preferences dialog — keymap + annotation colors.
 
 Persistence lives in :mod:`opiter.core.preferences`; this module is

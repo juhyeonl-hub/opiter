@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Annotation operations on a Document.
 
 All annotations are written using PyMuPDF's standard ``/Annot`` types so
@@ -59,15 +61,129 @@ def _to_unrotated_quad(page: fitz.Page, r: Rect) -> fitz.Quad:
 
 
 # ------------------------------------------------------------ text marking
+def _existing_quads_of_type(page: fitz.Page, type_code: int) -> list[tuple]:
+    """Return ``[(annot, quads), …]`` for each annotation of ``type_code``
+    on *page*. ``quads`` is the list of ``fitz.Quad`` objects the
+    annotation covers, parsed from ``annot.vertices``."""
+    out: list[tuple] = []
+    for annot in page.annots() or []:
+        if annot.type[0] != type_code:
+            continue
+        verts = annot.vertices
+        if not verts or len(verts) % 4 != 0:
+            continue
+        quads = [
+            fitz.Quad(
+                verts[i * 4], verts[i * 4 + 1],
+                verts[i * 4 + 2], verts[i * 4 + 3],
+            )
+            for i in range(len(verts) // 4)
+        ]
+        out.append((annot, quads))
+    return out
+
+
+def _same_line_touching(
+    r1: fitz.Rect, r2: fitz.Rect
+) -> bool:
+    """True when ``r1`` and ``r2`` lie on the same text line AND are
+    either overlapping or separated by a horizontal gap smaller than
+    roughly one inter-word space. Used by the text-marking merge logic
+    so highlighting adjacent words in separate drags produces one
+    continuous mark instead of two rounded pills bumping into each
+    other at the space character.
+    """
+    # Significant vertical overlap (> half the shorter height) ⇒ same line
+    v_overlap = min(r1.y1, r2.y1) - max(r1.y0, r2.y0)
+    min_h = min(r1.y1 - r1.y0, r2.y1 - r2.y0)
+    if min_h <= 0 or v_overlap <= min_h * 0.5:
+        return False
+    # Gap tolerance scales with font size. A single-space character is
+    # typically ~25–35% of the line height; 60% gives headroom for
+    # proportional fonts without gobbling up an actual adjacent word.
+    h_gap = max(r1.x0 - r2.x1, r2.x0 - r1.x1)
+    return h_gap <= min_h * 0.6
+
+
+def _merge_with_existing(
+    page: fitz.Page, type_code: int, new_rects: list[fitz.Rect]
+) -> list[fitz.Rect]:
+    """Merge each pre-existing annotation of ``type_code`` whose quads
+    touch any of ``new_rects`` (overlapping OR same-line adjacent) into
+    the working list: touching old quads are unioned into the matching
+    new rect; any non-touching quads of the affected annotation are
+    preserved as separate rects. Touched annotations are deleted.
+    Returns the merged rect list.
+
+    After collapsing existing annotations we also fuse working-list
+    entries against each other in a second pass, so two new rects
+    highlighted in the same drag that happen to be adjacent become one.
+    """
+    working = list(new_rects)
+    to_delete = []
+    for annot, quads in _existing_quads_of_type(page, type_code):
+        touched = False
+        kept: list[fitz.Rect] = []
+        for q in quads:
+            qr = q.rect
+            hit = -1
+            for i, nr in enumerate(working):
+                if qr.intersects(nr) or _same_line_touching(qr, nr):
+                    hit = i
+                    break
+            if hit >= 0:
+                working[hit] = working[hit] | qr  # bounding union
+                touched = True
+            else:
+                kept.append(qr)
+        if touched:
+            working.extend(kept)
+            to_delete.append(annot)
+    for a in to_delete:
+        page.delete_annot(a)
+    # Collapse newly-combined rects that are now adjacent to each other.
+    return _collapse_adjacent(working)
+
+
+def _collapse_adjacent(rects: list[fitz.Rect]) -> list[fitz.Rect]:
+    """Repeatedly union any pair of rects in the list that are
+    overlapping or same-line adjacent. ``O(n²)`` over few rects so fine."""
+    result = list(rects)
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(result)):
+            for j in range(i + 1, len(result)):
+                if (
+                    result[i].intersects(result[j])
+                    or _same_line_touching(result[i], result[j])
+                ):
+                    result[i] = result[i] | result[j]
+                    del result[j]
+                    changed = True
+                    break
+            if changed:
+                break
+    return result
+
+
 def add_highlight(
     doc: Document,
     page_index: int,
     rects: Sequence[Rect],
     color: RGB | None = None,
 ) -> None:
-    """Highlight each rect (yellow if no color given)."""
+    """Highlight each rect (yellow if no color given).
+
+    Highlights already on the page that overlap any of *rects* are
+    absorbed into the new annotation — the old one is deleted and its
+    quads are unioned with the overlapping new rect so the result is a
+    single continuous mark without visible layering or step edges.
+    """
     page = doc.page(page_index)
-    quads = [_to_unrotated_quad(page, r) for r in rects]
+    new_rects = [_to_unrotated_rect(page, r) for r in rects]
+    merged = _merge_with_existing(page, fitz.PDF_ANNOT_HIGHLIGHT, new_rects)
+    quads = [r.quad for r in merged]
     annot = page.add_highlight_annot(quads)
     if color is not None:
         annot.set_colors(stroke=color)
@@ -90,12 +206,12 @@ def add_underline(
     color: RGB | None = None,
 ) -> None:
     page = doc.page(page_index)
-    # Extend the bottom edge in rotated/visible coords BEFORE derotation so
-    # the "below" direction is correct regardless of page rotation.
     expanded = [
         (r[0], r[1], r[2], r[3] + _UNDERLINE_OFFSET_PT) for r in rects
     ]
-    quads = [_to_unrotated_quad(page, r) for r in expanded]
+    new_rects = [_to_unrotated_rect(page, r) for r in expanded]
+    merged = _merge_with_existing(page, fitz.PDF_ANNOT_UNDERLINE, new_rects)
+    quads = [r.quad for r in merged]
     annot = page.add_underline_annot(quads)
     if color is not None:
         annot.set_colors(stroke=color)
@@ -110,7 +226,9 @@ def add_strikeout(
     color: RGB | None = None,
 ) -> None:
     page = doc.page(page_index)
-    quads = [_to_unrotated_quad(page, r) for r in rects]
+    new_rects = [_to_unrotated_rect(page, r) for r in rects]
+    merged = _merge_with_existing(page, fitz.PDF_ANNOT_STRIKE_OUT, new_rects)
+    quads = [r.quad for r in merged]
     annot = page.add_strikeout_annot(quads)
     if color is not None:
         annot.set_colors(stroke=color)

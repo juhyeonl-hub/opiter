@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Common interface every document-editor tab implements.
 
 MainWindow routes menu actions to the active tab through this surface:

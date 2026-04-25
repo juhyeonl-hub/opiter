@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 juhyeonl
 """Application entry point: bootstraps QApplication and shows the main window."""
 from __future__ import annotations
 

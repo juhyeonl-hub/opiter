@@ -1,13 +1,13 @@
 # Contributing to Opiter
 
-Opiter is in early **pre-alpha** stage. The codebase is small and actively evolving. Please read this before opening an issue or PR.
+Opiter is at **v0.1** — first public release. Single-maintainer project; small codebase. Please read this before opening an issue or PR.
 
 ## Before You Start
 
 1. **Open an issue first** for any non-trivial change. Saves you and the maintainer from wasted effort.
-2. **Check [PROJECT_BRIEF.md](./PROJECT_BRIEF.md)** — it defines the current iteration's scope. Contributions outside the current phase will be deferred.
+2. **Check [FEATURES.md](./FEATURES.md)** for the roadmap. Contributions toward a planned-but-not-shipped feature are welcome; out-of-roadmap changes need discussion first.
 3. **No DRM-bypass or reverse-engineering code** — see the Non-Goals section in [PROJECT.md](./PROJECT.md).
-4. **License compatibility**: any new dependency must be MIT-distribution-compatible. GPL-licensed deps are reviewed case-by-case and avoided when feasible.
+4. **License compatibility**: any new dependency must be compatible with AGPL-3.0. Adding a more-restrictive license requires explicit review.
 
 ## Development Setup
 
@@ -51,7 +51,7 @@ For PDFs that trigger crashes, please confirm you have the right to share the fi
 
 ## License
 
-By contributing, you agree your code is licensed under [MIT](./LICENSE).
+By contributing, you agree your code is licensed under [AGPL-3.0](./LICENSE).
 
 ## Questions
 

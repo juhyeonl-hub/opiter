@@ -2,98 +2,104 @@
 
 Legend: ✅ Done · 🚧 In progress · 📋 Planned · 🔮 Long-term
 
-> The current MVP scope (Phase 1~3) is tracked in detail in [PROJECT_BRIEF.md](./PROJECT_BRIEF.md). This document is the long-term roadmap.
-
 ---
 
-## Phase 1: Basic Viewer 🚧 *(MVP scope)*
+## v0.1 — Shipped ✅
+
+### PDF (full editor)
 
 | Feature | Status |
 |---------|--------|
-| Open PDF (file dialog, drag-and-drop, recent files) | 📋 |
-| Multi-page rendering | 📋 |
-| Page navigation (next/prev, keyboard, page jump) | 📋 |
-| Zoom controls (fit-to-width, fit-to-page, custom %) | 📋 |
-| Thumbnail sidebar with click-to-jump | 📋 |
-| Text search (current page + full document) | 📋 |
-| Dark mode / light mode toggle | 📋 |
+| Open PDF (file dialog, recent files, encrypted with password) | ✅ |
+| Multi-page rendering with QScrollArea + zoom (fit/actual/fit-width) | ✅ |
+| Page navigation (PgUp/PgDn, Home/End, Go-to-page) | ✅ |
+| Thumbnail sidebar (click-to-jump, drag-reorder, multi-select) | ✅ |
+| Full-text search (rotation-aware highlighting) | ✅ |
+| Dark mode / light mode toggle | ✅ |
+| Add / delete / insert blank / rotate pages | ✅ |
+| Merge multiple PDFs | ✅ |
+| Split (by range or per-page) | ✅ |
+| Extract pages | ✅ |
+| Annotations: highlight, underline, strikethrough (with auto-merge of adjacent runs) | ✅ |
+| Annotations: sticky note, freehand pen, rectangle, ellipse, arrow, text box | ✅ |
+| Pointer tool: select / move / delete annotations | ✅ |
+| Per-document undo/redo (snapshot-based) | ✅ |
+| Image export (PNG/JPG, per-page or batch) | ✅ |
+| Image → PDF (auto-opens result) | ✅ |
+| Compression (3 quality presets) | ✅ |
+| Text watermark (4 rotations, rotation-aware on rotated pages) | ✅ |
+| Document properties / metadata editing | ✅ |
+| Bookmarks / TOC editing dock | ✅ |
+| Multi-PDF tabs (independent state, undo, dedup on re-open) | ✅ |
 
-**Verification target**: Open a 10-page PDF, navigate to last page, zoom to 200%, search for a common word, toggle dark mode.
-
----
-
-## Phase 2: Page Manipulation 🚧 *(MVP scope)*
-
-| Feature | Status |
-|---------|--------|
-| Add page (blank or from another PDF) | 📋 |
-| Delete page (single or range) | 📋 |
-| Reorder pages (drag in sidebar) | 📋 |
-| Rotate page (90° increments) | 📋 |
-| Merge multiple PDFs into one | 📋 |
-| Split PDF (by range or per-page) | 📋 |
-| Extract pages (save selection as new PDF) | 📋 |
-
-**Verification target**: Output files must open correctly in independent PDF viewers (e.g., evince, browser).
-
----
-
-## Phase 3: Annotations 🚧 *(MVP scope)*
+### DOCX (viewer)
 
 | Feature | Status |
 |---------|--------|
-| Text markup: highlight / underline / strikethrough | 📋 |
-| Sticky notes (anchored pop-up comments) | 📋 |
-| Freehand drawing (configurable color/thickness) | 📋 |
-| Shapes: rectangle, ellipse, arrow | 📋 |
-| Text box (arbitrary text on page) | 📋 |
-| Annotation persistence in standard PDF format | 📋 |
+| Open .docx, render headings / bold / italic / underline / tables | ✅ |
+| CJK font fallback (Malgun Gothic / Noto CJK / NanumGothic) | ✅ |
+| Multi-DOCX tabs | ✅ |
 
-**Verification target**: Annotations must survive save/reload and render correctly in other PDF viewers.
+### HWP (viewer)
+
+| Feature | Status |
+|---------|--------|
+| Text extraction via pyhwp | ✅ |
+| Korean / Hanja rendering | ✅ |
+| Multi-HWP tabs | ✅ |
+
+### Cross-format export
+
+| Feature | Status |
+|---------|--------|
+| PDF → DOCX (pdf2docx) | ✅ |
+| PDF → HWP (best-effort via LibreOffice + h2orestart, auto-detected) | ✅ |
 
 ---
 
-## Phase 4: Advanced PDF 📋 *(Post-MVP)*
+## Post-v0.1 Roadmap
 
-- PDF → Image (PNG, JPG) — per-page or batch
-- Image → PDF (compile images into PDF)
-- PDF compression (quality/size tradeoff)
-- Watermark (text or image overlay)
-- Metadata editing (title, author, subject, keywords)
-- Bookmarks / outline editing
+### Phase 6 — DOCX editing 📋
 
-## Phase 5: Multi-Format 🔮 *(Long-term)*
+- Inline text editing in QTextEdit
+- Basic styling: bold / italic / underline / heading levels
+- Paragraph add / delete / reorder
+- Table edits
+- Save back to .docx with format preservation
 
-- DOCX support (view/edit)
-- HWP support (view/edit)
-- Format conversion (PDF ↔ DOCX, etc.)
-- Unified document model across formats
+### Distribution 📋
 
-## Beyond Phase 5 🔮
+- Windows installer (PyInstaller + Inno Setup)
+- macOS .app bundle (PyInstaller, code signing)
+- Auto-update mechanism
 
-- OCR (text recognition from scanned documents)
-- Form filling (PDF AcroForm / XFA)
+### Other 🔮
+
+- OCR for scanned PDFs (tesseract)
+- Form filling (PDF AcroForm)
 - Digital signatures (sign / verify)
+- Batch processing CLI
 - Plugin system
 
 ---
 
 ## Non-Goals
 
-Explicitly **out of scope** for this project (see [PROJECT.md](./PROJECT.md) for rationale):
+Explicitly **out of scope** (see [PROJECT.md](./PROJECT.md) for rationale):
 
 - DRM circumvention / password-bypass for protected PDFs
 - Server-side rendering / web service
 - Mobile apps (iOS/Android)
 - AI-based content generation
 - Cloud-based collaboration (real-time multi-user editing)
+- HWP editing (read-only by design — no viable Python writer for the format)
 
 ---
 
 ## Platform Support
 
-| OS | Phase 1~3 (MVP) | Post-MVP |
-|----|-----------------|----------|
-| Linux | ✅ Primary dev target (WSL2/WSLg now, native later) | ✅ |
-| Windows | 🔮 Planned after MVP (PyInstaller / Nuitka) | ✅ |
-| macOS | 🔮 Planned after MVP (PyInstaller / Nuitka) | ✅ |
+| OS | v0.1 |
+|----|------|
+| Linux (X11 / Wayland / WSL2+WSLg) | ✅ Primary |
+| Windows | 📋 Planned (build from source via uv works; native installer post v0.1) |
+| macOS | 📋 Planned (same caveat) |
