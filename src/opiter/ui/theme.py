@@ -45,8 +45,24 @@ QMenuBar::item:selected { background: #d8d8d8; color: #141414; }
 QMenu { background-color: #ffffff; color: #141414; border: 1px solid #c0c0c0; }
 QMenu::item:selected { background: #d8d8d8; color: #141414; }
 QToolBar { background: #f5f5f5; border: 0; }
-QTabBar::tab { color: #141414; background: #e8e8e8; padding: 4px 10px; }
-QTabBar::tab:selected { background: #ffffff; }
+QTabBar::tab {
+    color: #141414;
+    background: #e8e8e8;
+    padding: 5px 14px;
+    border: 1px solid #c0c0c0;
+    border-bottom: none;
+    margin-right: 2px;
+}
+QTabBar::tab:selected {
+    background: #ffffff;
+    color: #000000;
+    font-weight: bold;
+}
+QTabBar::tab:hover:!selected {
+    background: #dcdcdc;
+    color: #141414;
+}
+QTabWidget::pane { border: 1px solid #c0c0c0; }
 """
 
 
@@ -71,6 +87,29 @@ QMenu::separator {
     height: 1px;
     margin: 4px 8px;
 }
+QMenuBar { background-color: #282828; color: #e6e6e6; }
+QMenuBar::item { background: transparent; color: #e6e6e6; padding: 4px 10px; }
+QMenuBar::item:selected { background: #3a3a3a; }
+QMenu { background-color: #282828; color: #e6e6e6; border: 1px solid #555; }
+QMenu::item:selected { background: #3a3a3a; }
+QToolBar { background: #282828; border: 0; }
+QTabBar::tab {
+    color: #e6e6e6;
+    background: #323232;
+    padding: 5px 14px;
+    border: 1px solid #555;
+    border-bottom: none;
+    margin-right: 2px;
+}
+QTabBar::tab:selected {
+    background: #1c1c1c;
+    color: #ffffff;
+    font-weight: bold;
+}
+QTabBar::tab:hover:!selected {
+    background: #404040;
+}
+QTabWidget::pane { border: 1px solid #555; }
 """
 
 

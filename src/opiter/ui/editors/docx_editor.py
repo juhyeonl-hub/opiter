@@ -25,7 +25,11 @@ def _inline(run) -> str:
 
 
 def _paragraph_html(para) -> str:
-    style = (para.style.name or "").lower()
+    # ``para.style`` is normally a populated Style object, but DOCX
+    # files produced by some editors (or stripped/edited by tooling)
+    # leave it as None — defend against that so opening doesn't crash.
+    style_obj = getattr(para, "style", None)
+    style = (getattr(style_obj, "name", None) or "").lower()
     if style.startswith("heading 1") or style == "title":
         tag = "h1"
     elif style.startswith("heading 2"):
