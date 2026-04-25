@@ -37,12 +37,14 @@ Commercial PDF editors are expensive and proprietary. Free web-based alternative
 - Multi-document tabs with independent undo stacks
 
 ### DOCX (viewer)
-- Read-only rich-text rendering: headings, bold/italic/underline, tables, lists
-- CJK font fallback for Korean text on systems without bundled CJK fonts
+- **Pixel-perfect rendering when LibreOffice is installed**: the .docx is converted to PDF in the background and shown in a built-in PDF view; layout, fonts, colors, highlights, embedded images all preserved.
+- Fallback: rich semantic HTML via [mammoth](https://github.com/mwilliamson/python-mammoth) — headings, tables, lists, inline formatting. No layout / no colors.
+- CJK font fallback for Korean text on systems without bundled CJK fonts.
 
 ### HWP (viewer)
-- Read-only text extraction via pyhwp
-- Korean / hanja rendered correctly with Malgun / Noto CJK fallback
+- **Pixel-perfect rendering when LibreOffice + the [h2orestart](https://github.com/ebandal/H2Orestart) extension are installed**: the .hwp is converted to PDF in the background and shown in the built-in PDF view.
+- Fallback: read-only text extraction via pyhwp. No layout / tables / images.
+- Korean / hanja rendered correctly with Malgun / Noto CJK fallback.
 
 ### Cross-format export
 - **PDF → DOCX**: pdf2docx-based, preserves text, images, basic tables

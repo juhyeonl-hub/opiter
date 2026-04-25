@@ -37,12 +37,14 @@
 - 멀티 PDF 탭 — 각 문서별 독립 undo 스택
 
 ### DOCX (뷰어)
-- 읽기 전용 리치텍스트 렌더: 제목, 굵게/기울임/밑줄, 표, 목록
-- CJK 폰트 자동 폴백 (Malgun Gothic / Noto CJK / NanumGothic) — 시스템에 한글 폰트가 없어도 정상 표시
+- **LibreOffice가 설치된 환경에서는 픽셀 단위 충실 렌더**: .docx를 백그라운드에서 PDF로 변환해 내장 PDF 뷰로 표시 — 레이아웃, 폰트, 색상, 하이라이트, 임베디드 이미지 모두 보존.
+- LibreOffice 없을 때는 [mammoth](https://github.com/mwilliamson/python-mammoth) 기반 HTML 폴백: 제목·표·리스트·인라인 서식 보존, 레이아웃·색상은 빠짐.
+- CJK 폰트 자동 폴백 (Malgun Gothic / Noto CJK / NanumGothic) — 시스템에 한글 폰트가 없어도 정상 표시.
 
 ### HWP (뷰어)
-- pyhwp 기반 텍스트 추출
-- 한글·한자 정상 렌더
+- **LibreOffice + [h2orestart](https://github.com/ebandal/H2Orestart) 확장이 설치된 환경에서는 픽셀 단위 충실 렌더**: .hwp를 백그라운드에서 PDF로 변환해 내장 PDF 뷰로 표시.
+- 폴백: pyhwp 기반 텍스트 추출 — 레이아웃·표·이미지는 빠짐.
+- 한글·한자 정상 렌더.
 
 ### 포맷 간 변환
 - **PDF → DOCX**: pdf2docx 기반, 텍스트·이미지·간단한 표 보존

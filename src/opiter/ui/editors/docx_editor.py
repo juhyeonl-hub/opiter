@@ -1,34 +1,36 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 juhyeonl
-"""DOCX viewer tab — read-only HTML rendering via mammoth.
+"""DOCX viewer tab — two rendering tiers.
 
-We use `mammoth <https://github.com/mwilliamson/python-mammoth>`_ to
-turn the .docx into semantic HTML. Mammoth handles paragraphs,
-headings, lists (bulleted and numbered), tables (including merged
-cells), bold / italic / underline / strikethrough, hyperlinks, and
-inline images, and emits clean class-based HTML that QTextEdit can
-display directly. Anything mammoth flags as a conversion warning is
-silently dropped — the user just sees the best-effort rendering.
+Tier 1 (preferred): LibreOffice converts the DOCX to PDF in the
+background, and we render the PDF inside a ``QPdfView``. Result is
+pixel-perfect: page layout, fonts, colors, highlights, embedded
+images all come through.
 
-For maximum fidelity (page layout, exact fonts) a future iteration
-can convert DOCX → PDF via LibreOffice and render through PyMuPDF;
-this file is the no-extra-dependency tier.
+Tier 2 (fallback): when LibreOffice isn't installed, we fall back to
+``mammoth``-produced semantic HTML rendered in a ``QTextEdit``.
+Tables, lists, headings, basic inline formatting survive; page
+layout and color highlights don't.
+
+The chosen tier is decided per-open via ``office_conversion_available``.
+A ``QStackedWidget`` swaps the visible widget between the two views.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 import mammoth
+from PySide6.QtCore import QUrl
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QTextEdit, QVBoxLayout
+from PySide6.QtPdf import QPdfDocument
+from PySide6.QtPdfWidgets import QPdfView
+from PySide6.QtWidgets import QStackedWidget, QTextEdit, QVBoxLayout
 
+from opiter.core.office_to_pdf import convert_to_pdf, office_conversion_available
 from opiter.ui.cjk_font import cjk_family_chain
 from opiter.ui.editors.abstract_editor import AbstractEditor
 
 
-# Light QSS embedded into the rendered HTML so the document looks
-# typographically reasonable inside QTextEdit. QTextEdit only supports
-# a subset of CSS, hence the conservative rules.
 _HTML_PROLOGUE = """
 <style>
   body { font-family: sans-serif; line-height: 1.45; color: #141414; }
@@ -50,12 +52,7 @@ _HTML_PROLOGUE = """
 
 
 def docx_to_html(path: str | Path) -> str:
-    """Render a .docx as HTML using mammoth's default style map.
-
-    Conversion warnings (unsupported element variants, etc.) are
-    discarded — best-effort rendering is preferred over a half-empty
-    viewer.
-    """
+    """Render a .docx as HTML using mammoth's default style map."""
     with open(path, "rb") as f:
         result = mammoth.convert_to_html(f)
     body = result.value or ""
@@ -63,27 +60,55 @@ def docx_to_html(path: str | Path) -> str:
 
 
 class DOCXEditor(AbstractEditor):
-    """Read-only DOCX viewer."""
+    """Read-only DOCX viewer with PDF (preferred) or HTML (fallback) rendering."""
 
     def __init__(self) -> None:
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self._edit = QTextEdit()
-        self._edit.setReadOnly(True)
+
+        self._stack = QStackedWidget(self)
+        layout.addWidget(self._stack)
+
+        # Tier 2: HTML fallback
+        self._text = QTextEdit()
+        self._text.setReadOnly(True)
         font = QFont()
         font.setFamilies(cjk_family_chain())
         font.setPointSize(11)
-        self._edit.setFont(font)
-        layout.addWidget(self._edit)
+        self._text.setFont(font)
+        self._stack.addWidget(self._text)
+
+        # Tier 1: PDF view
+        self._pdf_doc = QPdfDocument(self)
+        self._pdf_view = QPdfView()
+        self._pdf_view.setDocument(self._pdf_doc)
+        self._pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+        self._pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
+        self._stack.addWidget(self._pdf_view)
 
         self._path: Path | None = None
 
     # ------------------------------------------------------------ interface
     def open_file(self, path: str | Path) -> None:
         p = Path(path)
+        if office_conversion_available():
+            try:
+                pdf_path = convert_to_pdf(p)
+                self._pdf_doc.load(str(pdf_path))
+                self._stack.setCurrentWidget(self._pdf_view)
+                self._path = p
+                self.title_changed.emit(self.display_name())
+                return
+            except Exception as exc:
+                self.status_message.emit(
+                    f"LibreOffice conversion failed; using fallback: {exc}",
+                    6000,
+                )
+        # Fallback to mammoth HTML.
         html_str = docx_to_html(p)
-        self._edit.setHtml(html_str)
+        self._text.setHtml(html_str)
+        self._stack.setCurrentWidget(self._text)
         self._path = p
         self.title_changed.emit(self.display_name())
 
