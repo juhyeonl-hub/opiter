@@ -1518,6 +1518,7 @@ class MainWindow(QMainWindow):
         self._format_tabs.setCurrentWidget(self._docx_file_tabs)
         prefs_mod.push_recent_file(self._prefs, path_str)
         self._rebuild_recent_menu()
+        self._maybe_prompt_lo_install()
 
     def _open_hwp_tab(self, path_str: str) -> None:
         if self._focus_existing_tab(self._hwp_file_tabs, Path(path_str)):
@@ -1538,6 +1539,83 @@ class MainWindow(QMainWindow):
         self._format_tabs.setCurrentWidget(self._hwp_file_tabs)
         prefs_mod.push_recent_file(self._prefs, path_str)
         self._rebuild_recent_menu()
+        self._maybe_prompt_lo_install()
+
+    # =================================================== LibreOffice prompt
+    def _maybe_prompt_lo_install(self) -> None:
+        """Offer to auto-install LibreOffice + h2orestart on the user's
+        first DOCX/HWP open if it's missing. Idempotent — once the user
+        has answered the prompt is suppressed forever (via prefs).
+        """
+        from opiter.core import lo_installer
+        if self._prefs.lo_install_prompted:
+            return
+        if lo_installer.is_libreoffice_installed():
+            return
+        if lo_installer.detect_installer() is None:
+            # No package manager we know how to drive — don't bother
+            # the user with a prompt that has no clean answer.
+            self._prefs.lo_install_prompted = True
+            return
+
+        size = lo_installer.estimated_libreoffice_size_mb()
+        installer = lo_installer.installer_display_name(
+            lo_installer.detect_installer()  # type: ignore[arg-type]
+        )
+        box = QMessageBox(self)
+        box.setWindowTitle("Improve DOCX / HWP rendering?")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            "Opiter is currently showing this document in a simplified "
+            "view (text + basic formatting).\n\n"
+            "For pixel-perfect rendering of DOCX and HWP files — page "
+            "layout, fonts, colors, embedded images, tables — install "
+            f"LibreOffice (~{size} MB) via {installer}?\n\n"
+            "The simplified view will keep working either way."
+        )
+        install_btn = box.addButton("Install LibreOffice", QMessageBox.ButtonRole.AcceptRole)
+        skip_btn = box.addButton("Not now", QMessageBox.ButtonRole.RejectRole)
+        never_btn = box.addButton("Don't ask again", QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(install_btn)
+        box.exec()
+        clicked = box.clickedButton()
+
+        if clicked is install_btn:
+            self._prefs.lo_install_prompted = True
+            self._launch_lo_install_dialog()
+        elif clicked is never_btn:
+            self._prefs.lo_install_prompted = True
+        # "Not now" leaves the flag False so the prompt returns next session.
+
+    def _launch_lo_install_dialog(self) -> None:
+        """Spawn the modal install dialog; on success, refresh any
+        already-open DOCX / HWP tabs so they re-render with LibreOffice."""
+        from opiter.ui.lo_install_dialog import LibreOfficeInstallDialog
+        dlg = LibreOfficeInstallDialog(self)
+        dlg.finished_ok.connect(self._on_lo_install_succeeded)
+        dlg.start()
+        dlg.exec()
+
+    def _on_lo_install_succeeded(self) -> None:
+        """Re-open every open DOCX / HWP file via the new LibreOffice
+        path so the user sees the upgraded rendering immediately."""
+        for inner in (self._docx_file_tabs, self._hwp_file_tabs):
+            for i in range(inner.count()):
+                w = inner.widget(i)
+                p = getattr(w, "file_path", lambda: None)()
+                if p is None:
+                    continue
+                try:
+                    w.open_file(p)
+                except Exception as exc:
+                    self.statusBar().showMessage(
+                        f"Could not refresh {p.name}: {exc}", 6000
+                    )
+        self.statusBar().showMessage(
+            "LibreOffice installed — DOCX / HWP files now use the "
+            "high-fidelity renderer.",
+            6000,
+        )
 
     def _ensure_format_tab(self, inner: QTabWidget, label: str) -> None:
         """Add *inner* as a format tab on the outer bar if absent."""

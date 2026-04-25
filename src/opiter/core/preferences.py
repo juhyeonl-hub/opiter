@@ -37,6 +37,11 @@ class Preferences:
     # Keymapping overrides (action_id → QKeySequence string). Empty = use defaults.
     keymap: dict[str, str] = field(default_factory=dict)
 
+    # LibreOffice install prompt: have we asked the user yet about
+    # auto-installing LO + h2orestart for full DOCX/HWP fidelity?
+    # Stays False until the prompt has been shown and answered.
+    lo_install_prompted: bool = False
+
     # Annotation colors (each is a "r,g,b" string of 0..1 floats for JSON portability)
     color_highlight: str = "1.0,1.0,0.0"
     color_underline: str = "0.0,0.0,1.0"
