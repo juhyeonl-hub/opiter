@@ -118,6 +118,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # PyInstaller's intermediate build/ holds duplicates of the
+          # bundle contents; free that space before hdiutil compresses
+          # the .app, otherwise the runner runs out mid-creation.
+          rm -rf build/
           # hdiutil ships with macOS — produces a compressed .dmg from
           # the .app bundle PyInstaller built.
           hdiutil create \
