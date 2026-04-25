@@ -24,7 +24,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QFont
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtPdfWidgets import QPdfView
-from PySide6.QtWidgets import QStackedWidget, QTextEdit, QVBoxLayout
+from PySide6.QtWidgets import QMessageBox, QStackedWidget, QTextEdit, QVBoxLayout
 
 from opiter.core.office_to_pdf import convert_to_pdf, office_conversion_available
 from opiter.ui.cjk_font import cjk_family_chain
@@ -101,9 +101,15 @@ class DOCXEditor(AbstractEditor):
                 self.title_changed.emit(self.display_name())
                 return
             except Exception as exc:
-                self.status_message.emit(
-                    f"LibreOffice conversion failed; using fallback: {exc}",
-                    6000,
+                # Persistent dialog (not just status bar) so the user
+                # sees why the simplified view is being shown.
+                QMessageBox.warning(
+                    self,
+                    "DOCX rendering — using simplified view",
+                    "Opiter found LibreOffice but couldn't convert this "
+                    "document to PDF, so it is showing a simplified text "
+                    "view instead.\n\n"
+                    f"Reason:\n{exc}",
                 )
         # Fallback to mammoth HTML.
         html_str = docx_to_html(p)

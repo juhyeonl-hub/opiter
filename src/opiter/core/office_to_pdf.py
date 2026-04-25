@@ -17,11 +17,14 @@ keyed on (resolved-path, mtime) so reopening a document is instant.
 from __future__ import annotations
 
 import hashlib
+import logging
 import shutil
 import subprocess
 from pathlib import Path
 
 from opiter.utils.paths import cache_dir
+
+log = logging.getLogger(__name__)
 
 
 _CONVERT_TIMEOUT_SECONDS = 120
@@ -83,30 +86,47 @@ def convert_to_pdf(src: str | Path) -> Path:
         return cache_pdf
 
     out_dir = cache_pdf.parent
-    result = subprocess.run(
-        [
-            soffice,
-            "--headless",
-            "--convert-to", "pdf",
-            "--outdir", str(out_dir),
-            str(src_path),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=_CONVERT_TIMEOUT_SECONDS,
+    cmd = [
+        soffice,
+        "--headless",
+        "--convert-to", "pdf",
+        "--outdir", str(out_dir),
+        str(src_path),
+    ]
+    log.info("converting %s via %s", src_path, soffice)
+    log.debug("cmd=%r", cmd)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_CONVERT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        log.error("LibreOffice conversion timed out for %s", src_path)
+        raise RuntimeError(
+            f"LibreOffice conversion of {src_path.name} timed out "
+            f"after {_CONVERT_TIMEOUT_SECONDS} seconds."
+        )
+    log.info(
+        "soffice rc=%s stdout=%r stderr=%r",
+        result.returncode, result.stdout[:500], result.stderr[:500],
     )
     if result.returncode != 0:
-        # HWP conversion in particular needs h2orestart — surface a
-        # focused error so the editor can show a useful message.
         raise RuntimeError(
-            f"LibreOffice conversion failed for {src_path.name}.\n\n"
-            f"stderr: {result.stderr.strip()}"
+            f"LibreOffice conversion failed for {src_path.name} "
+            f"(rc={result.returncode}).\n"
+            f"stdout: {result.stdout.strip()[:500]}\n"
+            f"stderr: {result.stderr.strip()[:500]}"
         )
     produced = out_dir / f"{src_path.stem}.pdf"
     if not produced.exists():
+        # List what soffice actually produced so we can diagnose.
+        siblings = sorted(p.name for p in out_dir.iterdir())[:30]
         raise RuntimeError(
-            f"LibreOffice did not produce a PDF for {src_path.name} — "
-            "for HWP files the h2orestart extension may not be loaded."
+            f"LibreOffice exited 0 but {produced.name} is missing.\n"
+            f"out_dir contents: {siblings}\n"
+            f"For HWP files the h2orestart extension may not be loaded."
         )
     if produced != cache_pdf:
         # soffice names the output by the source filename; rename to our

@@ -20,7 +20,7 @@ from pathlib import Path
 from PySide6.QtGui import QFont
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtPdfWidgets import QPdfView
-from PySide6.QtWidgets import QStackedWidget, QTextEdit, QVBoxLayout
+from PySide6.QtWidgets import QMessageBox, QStackedWidget, QTextEdit, QVBoxLayout
 
 from opiter.core.office_to_pdf import convert_to_pdf, office_conversion_available
 from opiter.ui.cjk_font import cjk_family_chain
@@ -105,11 +105,14 @@ class HWPEditor(AbstractEditor):
                 self.title_changed.emit(self.display_name())
                 return
             except Exception as exc:
-                # h2orestart often missing — surface the reason but keep
-                # the user productive via the text fallback.
-                self.status_message.emit(
-                    f"HWP→PDF via LibreOffice failed; using text fallback: {exc}",
-                    8000,
+                QMessageBox.warning(
+                    self,
+                    "HWP rendering — using text-only view",
+                    "Opiter found LibreOffice but couldn't convert this "
+                    "HWP file to PDF, so it is showing the text fallback "
+                    "instead.\n\nThe most common cause is the H2Orestart "
+                    "extension not being loaded into LibreOffice.\n\n"
+                    f"Reason:\n{exc}",
                 )
         text = _extract_hwp_text(p)
         self._text.setPlainText(text)

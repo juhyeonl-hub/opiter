@@ -392,6 +392,13 @@ class MainWindow(QMainWindow):
         self._action_about = QAction("&About Opiter", self)
         self._action_about.triggered.connect(self._on_about)
 
+        self._action_install_libreoffice = QAction(
+            "&Install LibreOffice for full DOCX/HWP rendering…", self
+        )
+        self._action_install_libreoffice.triggered.connect(
+            self._on_install_libreoffice_menu
+        )
+
         self._action_preferences = QAction("&Preferences…", self)
         self._action_preferences.setShortcut(QKeySequence("Ctrl+,"))
         self._action_preferences.triggered.connect(self._on_preferences)
@@ -575,6 +582,8 @@ class MainWindow(QMainWindow):
         annotate_menu.addAction(self._action_tool_textbox)
 
         help_menu = menubar.addMenu("&Help")
+        help_menu.addAction(self._action_install_libreoffice)
+        help_menu.addSeparator()
         help_menu.addAction(self._action_about)
 
     def _build_toolbar(self) -> None:
@@ -1595,6 +1604,31 @@ class MainWindow(QMainWindow):
         dlg.finished_ok.connect(self._on_lo_install_succeeded)
         dlg.start()
         dlg.exec()
+
+    def _on_install_libreoffice_menu(self) -> None:
+        """Help → Install LibreOffice. Always available so the user can
+        retry after a previously dismissed / failed prompt without
+        editing preferences by hand."""
+        from opiter.core import lo_installer
+        if lo_installer.is_libreoffice_installed():
+            QMessageBox.information(
+                self, "LibreOffice already installed",
+                "LibreOffice is already detected on this system. Open a "
+                "DOCX or HWP file to use the high-fidelity renderer.\n\n"
+                "If documents still look simple, the H2Orestart extension "
+                "may be missing — re-run this from a clean install.",
+            )
+            return
+        if lo_installer.detect_installer() is None:
+            QMessageBox.warning(
+                self, "No package manager detected",
+                "No supported package manager was found on this system.\n\n"
+                "Install LibreOffice manually from "
+                "https://www.libreoffice.org/download/ and restart Opiter.",
+            )
+            return
+        # Force show the dialog regardless of the lo_install_prompted flag.
+        self._launch_lo_install_dialog()
 
     def _on_lo_install_succeeded(self) -> None:
         """Re-open every open DOCX / HWP file via the new LibreOffice
