@@ -64,3 +64,17 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+# macOS-only: wrap the executable in a proper .app bundle. PyInstaller
+# ignores the BUNDLE block on Linux and Windows so this is safe to keep.
+app = BUNDLE(
+    exe,
+    name="Opiter.app",
+    icon=None,
+    bundle_identifier="dev.juhyeonl.opiter",
+    info_plist={
+        "CFBundleDisplayName": "Opiter",
+        "CFBundleShortVersionString": "0.1.1",
+        "NSHighResolutionCapable": True,
+    },
+)
