@@ -11,6 +11,35 @@ from __future__ import annotations
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
+# --- Light theme palette -------------------------------------------------
+# Explicit values rather than ``style().standardPalette()`` because the
+# default on Windows 11 ships washed-out grays with poor contrast for
+# Qt widgets — toolbar/tab/menu text becomes nearly invisible. The
+# palette below mirrors Qt's traditional Fusion light look but with
+# stronger text contrast.
+_LIGHT_WINDOW = QColor(245, 245, 245)
+_LIGHT_BASE = QColor(255, 255, 255)
+_LIGHT_ALT_BASE = QColor(235, 235, 235)
+_LIGHT_BUTTON = QColor(240, 240, 240)
+_LIGHT_TEXT = QColor(20, 20, 20)
+_LIGHT_DISABLED_TEXT = QColor(140, 140, 140)
+_LIGHT_HIGHLIGHT = QColor(0, 120, 215)
+_LIGHT_LINK = QColor(0, 102, 204)
+
+_LIGHT_QSS = """
+QToolTip {
+    color: #141414;
+    background-color: #fdfdfd;
+    border: 1px solid #aaa;
+}
+QMenu::separator {
+    background: #c8c8c8;
+    height: 1px;
+    margin: 4px 8px;
+}
+"""
+
+
 # --- Dark theme palette --------------------------------------------------
 _DARK_WINDOW = QColor(40, 40, 40)
 _DARK_BASE = QColor(28, 28, 28)
@@ -36,9 +65,30 @@ QMenu::separator {
 
 
 def apply_light(app: QApplication) -> None:
-    """Restore the platform default palette and clear any custom QSS."""
-    app.setPalette(app.style().standardPalette())
-    app.setStyleSheet("")
+    """Apply an explicit light palette with crisp text contrast."""
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, _LIGHT_WINDOW)
+    palette.setColor(QPalette.ColorRole.WindowText, _LIGHT_TEXT)
+    palette.setColor(QPalette.ColorRole.Base, _LIGHT_BASE)
+    palette.setColor(QPalette.ColorRole.AlternateBase, _LIGHT_ALT_BASE)
+    palette.setColor(QPalette.ColorRole.Text, _LIGHT_TEXT)
+    palette.setColor(QPalette.ColorRole.Button, _LIGHT_BUTTON)
+    palette.setColor(QPalette.ColorRole.ButtonText, _LIGHT_TEXT)
+    palette.setColor(QPalette.ColorRole.Highlight, _LIGHT_HIGHLIGHT)
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, _LIGHT_BASE)
+    palette.setColor(QPalette.ColorRole.ToolTipText, _LIGHT_TEXT)
+    palette.setColor(QPalette.ColorRole.Link, _LIGHT_LINK)
+
+    for role in (
+        QPalette.ColorRole.Text,
+        QPalette.ColorRole.ButtonText,
+        QPalette.ColorRole.WindowText,
+    ):
+        palette.setColor(QPalette.ColorGroup.Disabled, role, _LIGHT_DISABLED_TEXT)
+
+    app.setPalette(palette)
+    app.setStyleSheet(_LIGHT_QSS)
 
 
 def apply_dark(app: QApplication) -> None:
