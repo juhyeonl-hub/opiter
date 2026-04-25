@@ -70,11 +70,18 @@ heavy_excludes = [
 ]
 
 a = Analysis(
-    ["opiter_launcher/main.py"],
-    pathex=[],
+    ["launch.py"],
+    pathex=["."],  # so ``opiter_launcher`` is importable as a package
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=[
+        "opiter_launcher",
+        "opiter_launcher.main",
+        "opiter_launcher.wizard",
+        "opiter_launcher.github",
+        "opiter_launcher.downloader",
+        "opiter_launcher.paths",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
