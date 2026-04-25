@@ -82,7 +82,7 @@ if IS_MAC:
         bundle_identifier="dev.juhyeonl.opiter",
         info_plist={
             "CFBundleDisplayName": "Opiter",
-            "CFBundleShortVersionString": "0.1.10",
+            "CFBundleShortVersionString": "0.1.11",
             "NSHighResolutionCapable": True,
         },
     )

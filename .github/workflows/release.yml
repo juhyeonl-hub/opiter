@@ -138,9 +138,50 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  launcher:
+    # Builds the small bootstrap launcher (~25 MB) that downloads the
+    # main Opiter binary at runtime. Only on Windows — Linux .deb and
+    # macOS .dmg already give a clean one-step install.
+    name: Launcher (windows-x86_64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Sync dependencies
+        run: uv sync --all-groups
+
+      - name: Build launcher with PyInstaller
+        shell: pwsh
+        working-directory: launcher
+        run: |
+          uv run pyinstaller --noconfirm opiter-launcher.spec
+
+      - name: Rename launcher artifact
+        shell: pwsh
+        working-directory: launcher
+        run: |
+          Copy-Item dist\opiter-setup.exe ..\opiter-setup-windows-x86_64.exe
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opiter-setup-windows-x86_64.exe
+          path: opiter-setup-windows-x86_64.exe
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: Attach to GitHub Release
-    needs: build
+    needs: [build, launcher]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
