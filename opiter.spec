@@ -58,7 +58,7 @@ if IS_MAC:
         name="opiter",
         debug=False,
         strip=False,
-        upx=True,
+        upx=False,
         console=False,
         disable_windowed_traceback=False,
         argv_emulation=False,
@@ -71,7 +71,7 @@ if IS_MAC:
         a.binaries,
         a.datas,
         strip=False,
-        upx=True,
+        upx=False,
         upx_exclude=[],
         name="opiter",
     )
@@ -82,7 +82,7 @@ if IS_MAC:
         bundle_identifier="dev.juhyeonl.opiter",
         info_plist={
             "CFBundleDisplayName": "Opiter",
-            "CFBundleShortVersionString": "0.1.2",
+            "CFBundleShortVersionString": "0.1.3",
             "NSHighResolutionCapable": True,
         },
     )
@@ -98,7 +98,7 @@ else:
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
-        upx=True,
+        upx=False,
         upx_exclude=[],
         runtime_tmpdir=None,
         console=False,
