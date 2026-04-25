@@ -1,5 +1,7 @@
 # Opiter
 
+**English** | [한국어](./README.ko.md)
+
 > Free, open-source desktop document workbench — edit PDFs, view DOCX and HWP, and convert between formats locally with no ads, subscriptions, or cloud uploads.
 
 **Status**: v0.1 — first public release. PDF editing complete; DOCX and HWP supported as viewers. Built and tested on Linux (incl. WSL2).
