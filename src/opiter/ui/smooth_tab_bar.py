@@ -1,47 +1,30 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 juhyeonl
-"""Custom QTabBar that smooths over two Qt-default visual quirks
-encountered while reordering tabs by drag-and-drop.
+"""Custom QTabBar that prevents tabs from drifting off the bar's edge
+during a drag-reorder.
 
-1. **Off-edge invisibility** — dragging a tab past the bar's left or
-   right edge makes the tab temporarily disappear until drop because
-   Qt does not clip the dragged tab's position to the bar's width.
-   We override ``mouseMoveEvent`` and clamp the x coordinate so the
-   tab always stays on screen.
+Qt does not clip the dragged tab's position to the bar's width — drag
+past the left or right edge and the tab visually disappears until
+drop. We override ``mouseMoveEvent`` and clamp the x coordinate so
+the tab stays on screen throughout.
 
-2. **Close-button vs. tab-body animation desync** — with
-   ``setMovable(True)`` Qt animates non-dragged tabs sliding to make
-   room (~250 ms), but the per-tab close button is repositioned to its
-   final destination immediately at the start of the move, which makes
-   the × visibly arrive a fraction of a second before the rest of the
-   tab. We zero out the style's animation duration via a ``QProxyStyle``
-   so both transitions happen on the same frame.
+(An earlier version also wrapped the bar's QStyle with a proxy that
+zeroed out animation durations to avoid a tab-body / close-button
+animation desync during reorder. That hard-pinned the bar to the
+style installed at construction time, which broke later light-mode
+QSS that depends on the global style being Fusion. Dropping the
+proxy is the lesser evil — the desync is a mild visual quirk;
+unreadable tab labels are not.)
 """
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QProxyStyle, QStyle, QTabBar
-
-
-class _NoAnimStyle(QProxyStyle):
-    """Reports zero duration for animations so QTabBar tab moves apply
-    instantly. Other style behavior is delegated unchanged."""
-
-    def styleHint(  # type: ignore[override]
-        self, hint, option=None, widget=None, returnData=None
-    ) -> int:
-        if hint == QStyle.StyleHint.SH_Widget_Animation_Duration:
-            return 0
-        return super().styleHint(hint, option, widget, returnData)
+from PySide6.QtWidgets import QTabBar
 
 
 class SmoothTabBar(QTabBar):
-    """Drop-in QTabBar with clamped drag and instant tab reorder."""
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self.setStyle(_NoAnimStyle(self.style()))
+    """Drop-in QTabBar with drag clamped inside the bar's own width."""
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         pos = event.position()
