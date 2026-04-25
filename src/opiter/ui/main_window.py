@@ -1607,19 +1607,24 @@ class MainWindow(QMainWindow):
 
     def _on_install_libreoffice_menu(self) -> None:
         """Help → Install LibreOffice. Always available so the user can
-        retry after a previously dismissed / failed prompt without
-        editing preferences by hand."""
+        retry after a previously dismissed / failed prompt, including
+        the case where LibreOffice itself is already there but the
+        H2Orestart HWP filter still needs to be registered."""
         from opiter.core import lo_installer
-        if lo_installer.is_libreoffice_installed():
+
+        lo_present = lo_installer.is_libreoffice_installed()
+        h2o_present = lo_installer.is_h2orestart_installed() if lo_present else False
+
+        if lo_present and h2o_present:
             QMessageBox.information(
-                self, "LibreOffice already installed",
-                "LibreOffice is already detected on this system. Open a "
-                "DOCX or HWP file to use the high-fidelity renderer.\n\n"
-                "If documents still look simple, the H2Orestart extension "
-                "may be missing — re-run this from a clean install.",
+                self, "LibreOffice already configured",
+                "LibreOffice is installed and the H2Orestart extension is "
+                "registered. DOCX and HWP files will use the high-fidelity "
+                "renderer.",
             )
             return
-        if lo_installer.detect_installer() is None:
+
+        if not lo_present and lo_installer.detect_installer() is None:
             QMessageBox.warning(
                 self, "No package manager detected",
                 "No supported package manager was found on this system.\n\n"
@@ -1627,7 +1632,10 @@ class MainWindow(QMainWindow):
                 "https://www.libreoffice.org/download/ and restart Opiter.",
             )
             return
-        # Force show the dialog regardless of the lo_install_prompted flag.
+
+        # Either LO is missing (full install) or LO is present but
+        # H2Orestart is missing (Stage 1 will short-circuit and we run
+        # only the download + unopkg add steps).
         self._launch_lo_install_dialog()
 
     def _on_lo_install_succeeded(self) -> None:
