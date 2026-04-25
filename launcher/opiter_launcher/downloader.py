@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import ssl  # noqa: F401  — bundled https support, see github.py
 import urllib.request
 
 from PySide6.QtCore import QThread, Signal

@@ -81,6 +81,12 @@ a = Analysis(
         "opiter_launcher.github",
         "opiter_launcher.downloader",
         "opiter_launcher.paths",
+        # Explicit so PyInstaller bundles OpenSSL + cert support.
+        # urllib needs these to handle https:// URLs; without them
+        # the .exe fails with "unknown url type: https".
+        "ssl",
+        "_ssl",
+        "urllib.request",
     ],
     hookspath=[],
     hooksconfig={},

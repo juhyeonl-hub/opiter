@@ -9,6 +9,11 @@ launcher binary as small as possible.
 from __future__ import annotations
 
 import json
+# Explicit ``ssl`` import so PyInstaller's static-analysis dependency
+# walk sees it; without this the bundled .exe fails on https with
+# "unknown url type: https" because urllib lazy-imports ssl only when
+# it actually needs to open a TLS connection.
+import ssl  # noqa: F401
 import urllib.request
 from dataclasses import dataclass
 
