@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import shutil
 import subprocess
 from pathlib import Path
 
+from opiter.core.lo_installer import find_soffice
 from opiter.utils.paths import cache_dir
 
 log = logging.getLogger(__name__)
@@ -30,18 +30,12 @@ log = logging.getLogger(__name__)
 _CONVERT_TIMEOUT_SECONDS = 120
 
 
-def _soffice_binary() -> str | None:
-    for name in ("soffice", "libreoffice"):
-        path = shutil.which(name)
-        if path:
-            return path
-    return None
-
-
 def office_conversion_available() -> bool:
-    """True iff LibreOffice is on PATH. h2orestart presence cannot be
-    detected without spawning LO and is checked at call time."""
-    return _soffice_binary() is not None
+    """True iff a LibreOffice binary is reachable. h2orestart presence
+    is checked separately (HWP-specific). Reuses the lookup logic in
+    :mod:`opiter.core.lo_installer` so both the install-prompt and the
+    actual conversion agree on whether LO is available."""
+    return find_soffice() is not None
 
 
 def _office_pdf_cache_dir() -> Path:
@@ -74,7 +68,7 @@ def convert_to_pdf(src: str | Path) -> Path:
     LibreOffice is missing or conversion fails (e.g. h2orestart not
     loaded for HWP).
     """
-    soffice = _soffice_binary()
+    soffice = find_soffice()
     if soffice is None:
         raise RuntimeError(
             "LibreOffice (soffice) is not installed — required for "

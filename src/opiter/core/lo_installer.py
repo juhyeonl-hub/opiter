@@ -37,11 +37,18 @@ _H2ORESTART_URL = (
 
 # --------------------------------------------------------------- detection
 def is_libreoffice_installed() -> bool:
-    """True iff a ``soffice`` (or ``libreoffice``) binary is on PATH."""
-    return _soffice_binary() is not None
+    """True iff a ``soffice`` (or ``libreoffice``) binary is reachable."""
+    return find_soffice() is not None
 
 
-def _soffice_binary() -> str | None:
+def find_soffice() -> str | None:
+    """Return the absolute path to a usable LibreOffice binary, or None.
+
+    Looks at ``soffice`` / ``libreoffice`` on PATH first, then falls
+    back to the standard Windows install locations because winget
+    typically does NOT add the LibreOffice ``program`` directory to
+    PATH after a fresh install.
+    """
     for name in ("soffice", "libreoffice"):
         path = shutil.which(name)
         if path:
@@ -55,6 +62,10 @@ def _soffice_binary() -> str | None:
             if Path(guess).exists():
                 return guess
     return None
+
+
+# Backwards-compatible alias used inside this module.
+_soffice_binary = find_soffice
 
 
 def detect_installer() -> str | None:
