@@ -2,20 +2,21 @@
 # Copyright (C) 2026 juhyeonl
 """Tiny GitHub Releases API client used by the launcher.
 
-We only need: list latest release + find a named asset's browser URL.
-Plain ``urllib`` is fine here — no extra dependencies, keeps the
-launcher binary as small as possible.
+We deliberately use Qt's networking stack
+(``QNetworkAccessManager``) instead of ``urllib``: Qt brings its own
+SSL implementation as part of PySide6 and does not need Python's
+_ssl + OpenSSL DLLs to be bundled into the .exe. The Windows
+SmartScreen / Smart App Control heuristics flag generic OpenSSL
+bundles as suspicious, so avoiding them keeps the launcher
+unblocked while we wait for code-signing.
 """
 from __future__ import annotations
 
 import json
-# Explicit ``ssl`` import so PyInstaller's static-analysis dependency
-# walk sees it; without this the bundled .exe fails on https with
-# "unknown url type: https" because urllib lazy-imports ssl only when
-# it actually needs to open a TLS connection.
-import ssl  # noqa: F401
-import urllib.request
 from dataclasses import dataclass
+
+from PySide6.QtCore import QEventLoop, QUrl
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
 _REPO = "juhyeonl-hub/opiter"
 _API = f"https://api.github.com/repos/{_REPO}/releases/latest"
@@ -30,7 +31,7 @@ class ReleaseAsset:
 
 @dataclass(frozen=True)
 class Release:
-    tag: str       # e.g. "v0.1.10"
+    tag: str       # e.g. "v0.1.13"
     assets: list[ReleaseAsset]
 
     def asset(self, name: str) -> ReleaseAsset | None:
@@ -40,17 +41,54 @@ class Release:
         return None
 
 
-def fetch_latest_release(timeout_sec: float = 10.0) -> Release:
-    """Return the most recent published release of the Opiter repo."""
-    req = urllib.request.Request(
-        _API,
-        headers={
-            "User-Agent": "Opiter-Launcher",
-            "Accept": "application/vnd.github+json",
-        },
+def fetch_latest_release(timeout_sec: float = 15.0) -> Release:
+    """Return the most recent published release of the Opiter repo.
+
+    Uses ``QNetworkAccessManager`` synchronously (via a nested
+    ``QEventLoop``) — the call returns once the reply has finished or
+    the timeout fires. Raises ``RuntimeError`` on any error.
+    """
+    nam = QNetworkAccessManager()
+    request = QNetworkRequest(QUrl(_API))
+    request.setHeader(
+        QNetworkRequest.KnownHeaders.UserAgentHeader, b"Opiter-Launcher"
     )
-    with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
-        data = json.load(resp)
+    request.setRawHeader(b"Accept", b"application/vnd.github+json")
+    request.setAttribute(
+        QNetworkRequest.Attribute.RedirectPolicyAttribute,
+        QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy,
+    )
+
+    reply = nam.get(request)
+    loop = QEventLoop()
+    reply.finished.connect(loop.quit)
+    # Failsafe timeout — Qt's API has no built-in deadline on a single
+    # request, so we drive one ourselves.
+    from PySide6.QtCore import QTimer
+    timer = QTimer()
+    timer.setSingleShot(True)
+    timer.timeout.connect(loop.quit)
+    timer.start(int(timeout_sec * 1000))
+    loop.exec()
+    timer.stop()
+
+    if not reply.isFinished():
+        reply.abort()
+        raise RuntimeError(
+            f"Timed out fetching {_API} after {timeout_sec} s."
+        )
+    if reply.error() != QNetworkReply.NetworkError.NoError:
+        msg = reply.errorString()
+        reply.deleteLater()
+        raise RuntimeError(f"GitHub API request failed: {msg}")
+
+    body = bytes(reply.readAll())
+    reply.deleteLater()
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not parse GitHub response: {exc}")
+
     assets = [
         ReleaseAsset(
             name=a["name"],

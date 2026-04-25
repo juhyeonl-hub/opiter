@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
-from .downloader import DownloadWorker
+from .downloader import Downloader
 from .github import fetch_latest_release
 from .paths import (
     asset_name_for_current_platform,
@@ -136,7 +136,7 @@ class LauncherWindow(QMainWindow):
         self._btn_primary.clicked.connect(self._on_primary)
         self._btn_secondary.clicked.connect(self._on_secondary)
 
-        self._worker: DownloadWorker | None = None
+        self._worker: Downloader | None = None
         self._installed_exe: Path | None = None
         self._show_page(0)
 
@@ -197,7 +197,7 @@ class LauncherWindow(QMainWindow):
             f"from release {release.tag}…"
         )
         dest = main_executable_path()
-        self._worker = DownloadWorker(asset.url, dest)
+        self._worker = Downloader(asset.url, dest, parent=self)
         self._worker.progress.connect(self._on_progress)
         self._worker.finished_ok.connect(self._on_download_ok)
         self._worker.failed.connect(self._on_download_fail)

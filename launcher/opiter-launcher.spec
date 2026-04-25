@@ -81,12 +81,10 @@ a = Analysis(
         "opiter_launcher.github",
         "opiter_launcher.downloader",
         "opiter_launcher.paths",
-        # Explicit so PyInstaller bundles OpenSSL + cert support.
-        # urllib needs these to handle https:// URLs; without them
-        # the .exe fails with "unknown url type: https".
-        "ssl",
-        "_ssl",
-        "urllib.request",
+        # We use Qt's networking (QNetworkAccessManager) so we don't
+        # have to bundle Python's OpenSSL — that bundle was the
+        # SmartScreen / Smart App Control trigger that blocked v0.1.13.
+        "PySide6.QtNetwork",
     ],
     hookspath=[],
     hooksconfig={},
