@@ -66,7 +66,15 @@ See [FEATURES.md](./FEATURES.md) for the full feature inventory and post-v0.1 ro
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### Clone and run
+### Quick install (download a release)
+
+Pick the file that matches your OS from the [latest release](https://github.com/juhyeonl-hub/opiter/releases/latest):
+
+- **Windows**: `opiter-windows-x86_64.exe` — double-click to run.
+- **macOS (Apple Silicon)**: `opiter-macos-arm64.dmg` — open and drag `Opiter.app` to Applications. First launch: right-click → "Open" to bypass the unsigned-app Gatekeeper warning.
+- **Linux (Debian/Ubuntu)**: `opiter-linux-amd64.deb` — `sudo apt install ./opiter-linux-amd64.deb`.
+
+### Build from source
 ```bash
 git clone https://github.com/juhyeonl-hub/opiter
 cd opiter

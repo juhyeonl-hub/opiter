@@ -74,7 +74,7 @@ app = BUNDLE(
     bundle_identifier="dev.juhyeonl.opiter",
     info_plist={
         "CFBundleDisplayName": "Opiter",
-        "CFBundleShortVersionString": "0.1.1",
+        "CFBundleShortVersionString": "0.1.2",
         "NSHighResolutionCapable": True,
     },
 )

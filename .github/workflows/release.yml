@@ -26,13 +26,13 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux-x86_64
-            asset_name: opiter-linux-x86_64.tar.gz
+            asset_name: opiter-linux-amd64.deb
           - os: windows-latest
             platform: windows-x86_64
-            asset_name: opiter-windows-x86_64.zip
+            asset_name: opiter-windows-x86_64.exe
           - os: macos-latest
             platform: macos-arm64
-            asset_name: opiter-macos-arm64.zip
+            asset_name: opiter-macos-arm64.dmg
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -65,30 +65,66 @@ jobs:
       - name: Build with PyInstaller
         run: uv run pyinstaller --noconfirm opiter.spec
 
-      - name: Package — Linux
+      - name: Package — Linux (.deb)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          cd dist
-          tar -czvf ../${{ matrix.asset_name }} opiter
+          set -euo pipefail
+          VERSION=$(grep -m1 '^version' pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          ROOT=pkg
+          mkdir -p $ROOT/DEBIAN \
+                   $ROOT/usr/bin \
+                   $ROOT/usr/share/applications \
+                   $ROOT/usr/share/doc/opiter
+          cp dist/opiter $ROOT/usr/bin/opiter
+          chmod 755 $ROOT/usr/bin/opiter
+          cp LICENSE $ROOT/usr/share/doc/opiter/copyright
+          cat > $ROOT/usr/share/applications/opiter.desktop <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Opiter
+          GenericName=Document Workbench
+          Comment=Edit PDFs, view DOCX and HWP, convert between formats
+          Exec=/usr/bin/opiter %f
+          Terminal=false
+          Categories=Office;Graphics;Viewer;
+          MimeType=application/pdf;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/x-hwp;
+          EOF
+          INSTALLED_KB=$(du -sk $ROOT/usr | cut -f1)
+          cat > $ROOT/DEBIAN/control <<EOF
+          Package: opiter
+          Version: ${VERSION}
+          Section: graphics
+          Priority: optional
+          Architecture: amd64
+          Installed-Size: ${INSTALLED_KB}
+          Depends: libxcb-cursor0, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-randr0, libxcb-render-util0, libxcb-shape0, libxcb-xkb1, libxkbcommon-x11-0, libegl1
+          Maintainer: juhyeonl <xx.juon@gmail.com>
+          Homepage: https://github.com/juhyeonl-hub/opiter
+          Description: Free desktop document workbench
+           Edit PDFs, view DOCX and HWP files, and convert between formats
+           — all locally with no ads, subscriptions, or cloud uploads.
+          EOF
+          dpkg-deb --build --root-owner-group $ROOT ${{ matrix.asset_name }}
 
-      - name: Package — Windows
+      - name: Package — Windows (.exe)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path dist\opiter.exe -DestinationPath ${{ matrix.asset_name }}
+          Copy-Item dist\opiter.exe ${{ matrix.asset_name }}
 
-      - name: Package — macOS
+      - name: Package — macOS (.dmg)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          cd dist
-          # Prefer the .app bundle if PyInstaller produced one.
-          if [ -d "Opiter.app" ]; then
-            zip -r ../${{ matrix.asset_name }} Opiter.app
-          else
-            zip -r ../${{ matrix.asset_name }} opiter
-          fi
+          set -euo pipefail
+          # hdiutil ships with macOS — produces a compressed .dmg from
+          # the .app bundle PyInstaller built.
+          hdiutil create \
+            -volname "Opiter" \
+            -srcfolder dist/Opiter.app \
+            -ov -format UDZO \
+            ${{ matrix.asset_name }}
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

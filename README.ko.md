@@ -66,7 +66,15 @@
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 클론 후 실행
+### 빠른 설치 (릴리스 다운로드)
+
+[최신 릴리스](https://github.com/juhyeonl-hub/opiter/releases/latest)에서 OS에 맞는 파일을 받으세요:
+
+- **Windows**: `opiter-windows-x86_64.exe` — 더블클릭으로 실행.
+- **macOS (Apple Silicon)**: `opiter-macos-arm64.dmg` — 마운트 후 `Opiter.app`을 Applications로 드래그. 서명되지 않은 앱이라 첫 실행 시 우클릭 → "열기"로 Gatekeeper 경고를 우회해야 합니다.
+- **Linux (Debian/Ubuntu)**: `opiter-linux-amd64.deb` — `sudo apt install ./opiter-linux-amd64.deb`.
+
+### 소스에서 빌드
 ```bash
 git clone https://github.com/juhyeonl-hub/opiter
 cd opiter

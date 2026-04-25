@@ -1,6 +1,6 @@
 [project]
 name = "opiter"
-version = "0.1.1"
+version = "0.1.2"
 description = "Free, open-source desktop document workbench — edit PDFs, view DOCX and HWP, convert between formats, all locally."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
