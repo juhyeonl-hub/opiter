@@ -37,6 +37,16 @@ QMenu::separator {
     height: 1px;
     margin: 4px 8px;
 }
+/* Windows native style sometimes ignores palette WindowText for the
+ * menu bar; pin the menubar foreground explicitly. */
+QMenuBar { background-color: #f5f5f5; color: #141414; }
+QMenuBar::item { background: transparent; color: #141414; padding: 4px 10px; }
+QMenuBar::item:selected { background: #d8d8d8; color: #141414; }
+QMenu { background-color: #ffffff; color: #141414; border: 1px solid #c0c0c0; }
+QMenu::item:selected { background: #d8d8d8; color: #141414; }
+QToolBar { background: #f5f5f5; border: 0; }
+QTabBar::tab { color: #141414; background: #e8e8e8; padding: 4px 10px; }
+QTabBar::tab:selected { background: #ffffff; }
 """
 
 
@@ -64,8 +74,25 @@ QMenu::separator {
 """
 
 
+def _force_fusion_style(app: QApplication) -> None:
+    """Make our explicit palette actually take effect.
+
+    Windows' native ``windowsvista`` style ignores most palette colors
+    (it pulls them from the OS theme), so toolbar / menu bar text ends
+    up unreadable when our light palette is installed. Fusion respects
+    palettes fully and looks identical across platforms.
+    """
+    from PySide6.QtWidgets import QStyleFactory
+
+    if app.style().objectName().lower() != "fusion":
+        fusion = QStyleFactory.create("Fusion")
+        if fusion is not None:
+            app.setStyle(fusion)
+
+
 def apply_light(app: QApplication) -> None:
     """Apply an explicit light palette with crisp text contrast."""
+    _force_fusion_style(app)
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, _LIGHT_WINDOW)
     palette.setColor(QPalette.ColorRole.WindowText, _LIGHT_TEXT)
@@ -93,6 +120,7 @@ def apply_light(app: QApplication) -> None:
 
 def apply_dark(app: QApplication) -> None:
     """Switch the application to a dark color scheme."""
+    _force_fusion_style(app)
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, _DARK_WINDOW)
     palette.setColor(QPalette.ColorRole.WindowText, _DARK_TEXT)

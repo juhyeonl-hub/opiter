@@ -2155,7 +2155,14 @@ class MainWindow(QMainWindow):
         """Apply ``self._prefs`` to UI state after all widgets are built."""
         # Dark mode
         if self._prefs.dark_mode:
-            self._action_dark_mode.setChecked(True)  # triggers toggled → apply_dark
+            # Triggers _on_toggle_dark_mode → apply_dark.
+            self._action_dark_mode.setChecked(True)
+        else:
+            # Default light theme — call explicitly so our Fusion-based
+            # palette + QSS gets installed instead of the platform's
+            # native style (which on Windows ignores our palette).
+            from PySide6.QtWidgets import QApplication
+            apply_light(QApplication.instance())
         # Thumbnail panel visibility persists across sessions.
         if not self._prefs.dock_visible:
             self._action_toggle_thumbs.setChecked(False)
