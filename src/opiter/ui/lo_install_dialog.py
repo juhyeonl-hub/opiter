@@ -331,8 +331,18 @@ class LibreOfficeInstallDialog(QDialog):
 
     # ------------------------------------------------------------ subprocess
     def _spawn_process(self, cmd: list[str], on_done) -> None:
+        from opiter.core.office_to_pdf import soffice_subprocess_env
+        from PySide6.QtCore import QProcessEnvironment
+
         self._proc = QProcess(self)
         self._proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        # Strip PYTHONHOME/PYTHONPATH so LO's bundled Python doesn't try
+        # to use our interpreter's paths (matters most for stage 3,
+        # ``unopkg add``, which loads LO's Python runtime).
+        qenv = QProcessEnvironment.systemEnvironment()
+        for var in ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP"):
+            qenv.remove(var)
+        self._proc.setProcessEnvironment(qenv)
         self._proc.readyReadStandardOutput.connect(self._on_proc_stdout)
         self._proc.finished.connect(
             lambda code, _status: on_done(code)

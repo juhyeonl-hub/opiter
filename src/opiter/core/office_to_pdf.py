@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -28,6 +30,24 @@ log = logging.getLogger(__name__)
 
 
 _CONVERT_TIMEOUT_SECONDS = 120
+
+
+def soffice_subprocess_env() -> dict[str, str]:
+    """Environment dict suitable for spawning ``soffice`` as a child.
+
+    LibreOffice ships with its own Python interpreter and links against
+    its own stdlib. If our process leaks ``PYTHONHOME`` / ``PYTHONPATH``
+    into the child env (which happens when Opiter itself runs from a
+    venv or a PyInstaller bundle), LO's internal Python tries to use
+    OUR paths and fails with
+    "Could not find platform independent libraries <prefix>", which
+    cascades into "source file could not be loaded" when LO then tries
+    to import the HWP filter. Strip those before calling soffice.
+    """
+    env = os.environ.copy()
+    for var in ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP"):
+        env.pop(var, None)
+    return env
 
 
 def office_conversion_available() -> bool:
@@ -95,6 +115,7 @@ def convert_to_pdf(src: str | Path) -> Path:
             capture_output=True,
             text=True,
             timeout=_CONVERT_TIMEOUT_SECONDS,
+            env=soffice_subprocess_env(),
         )
     except subprocess.TimeoutExpired:
         log.error("LibreOffice conversion timed out for %s", src_path)
