@@ -24,6 +24,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     QByteArray,
     QProcess,
+    QTimer,
     QUrl,
     Qt,
     Signal,
@@ -83,6 +84,15 @@ class LibreOfficeInstallDialog(QDialog):
         self._net = QNetworkAccessManager(self)
         self._stage = 0  # 0=idle, 1=install LO, 2=download oxt, 3=register oxt
         self._cancelled = False
+        # Some package managers (notably winget on Windows) print their
+        # success line and keep the parent process alive for trailing
+        # cleanup, so QProcess.finished can be slow / never to fire.
+        # Poll in parallel and advance the stage when soffice actually
+        # shows up on the filesystem — whichever signal arrives first.
+        self._lo_poll = QTimer(self)
+        self._lo_poll.setInterval(2000)  # 2 s
+        self._lo_poll.timeout.connect(self._poll_lo_install)
+        self._stage1_advanced = False
 
     # ------------------------------------------------------------ public
     def start(self) -> None:
@@ -122,10 +132,48 @@ class LibreOfficeInstallDialog(QDialog):
         self._status.setText(status)
 
     def _on_cancel(self) -> None:
+        self._teardown(reject=True)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """User clicked the title bar X — same as Cancel, but tear
+        everything down forcefully so the dialog doesn't hang waiting
+        on a still-running QProcess (winget can stay alive for a long
+        time after it prints success)."""
+        self._teardown(reject=True)
+        event.accept()
+
+    def _teardown(self, *, reject: bool) -> None:
+        """Stop timers, disconnect QProcess signals, kill subprocess.
+        Safe to call multiple times."""
         self._cancelled = True
-        if self._proc is not None and self._proc.state() != QProcess.ProcessState.NotRunning:
-            self._proc.kill()
-        self.reject()
+        try:
+            self._lo_poll.stop()
+        except RuntimeError:
+            pass
+        if self._proc is not None:
+            # Disconnect first so a late-fired finished signal can't
+            # re-enter the dialog after we've torn it down.
+            try:
+                self._proc.finished.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                self._proc.errorOccurred.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                self._proc.readyReadStandardOutput.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            if self._proc.state() != QProcess.ProcessState.NotRunning:
+                self._proc.kill()
+                # Don't waitForFinished — that re-blocks the GUI which
+                # is exactly what made the dialog "Not Responding" in
+                # the first place. Letting Qt clean up at deleteLater
+                # time is fine because the QProcess is parented to us.
+            self._proc = None
+        if reject:
+            self.reject()
 
     def _fail(self, reason: str) -> None:
         self._append_log(f"\nFAILED: {reason}")
@@ -152,18 +200,46 @@ class LibreOfficeInstallDialog(QDialog):
             self._begin_stage2_or_finish()
             return
         self._stage = 1
+        self._stage1_advanced = False
         cmd = lo_installer.libreoffice_install_command(self._installer)  # type: ignore[arg-type]
         self._set_progress(
             5,
             f"Installing LibreOffice via {lo_installer.installer_display_name(self._installer)}…",  # type: ignore[arg-type]
         )
         self._append_log("$ " + " ".join(cmd))
+        self._lo_poll.start()
         self._spawn_process(cmd, on_done=self._stage1_done)
 
-    def _stage1_done(self, exit_code: int) -> None:
-        if self._cancelled:
+    def _poll_lo_install(self) -> None:
+        """Watchdog: advance Stage 1 the moment soffice actually appears
+        on disk, even if QProcess.finished hasn't fired yet (winget on
+        Windows can take a long while to report exit after the install
+        is effectively complete).
+        """
+        if self._stage != 1 or self._stage1_advanced:
             return
-        if exit_code != 0:
+        if lo_installer.is_libreoffice_installed():
+            self._stage1_advanced = True
+            self._lo_poll.stop()
+            self._append_log(
+                "[opiter] soffice detected on disk — advancing to "
+                "H2Orestart even though the package manager hasn't "
+                "fully exited yet."
+            )
+            # Detach the lingering QProcess so it doesn't fire stage1_done
+            # later and double-advance.
+            if self._proc is not None:
+                try:
+                    self._proc.finished.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+            self._begin_stage2_or_finish()
+
+    def _stage1_done(self, exit_code: int) -> None:
+        if self._cancelled or self._stage1_advanced:
+            return
+        self._lo_poll.stop()
+        if exit_code != 0 and not lo_installer.is_libreoffice_installed():
             self._fail(
                 f"LibreOffice install exited with code {exit_code}. "
                 "See the log above for details."
@@ -171,10 +247,12 @@ class LibreOfficeInstallDialog(QDialog):
             return
         if not lo_installer.is_libreoffice_installed():
             self._fail(
-                "Install reported success but soffice is still not on PATH. "
-                "You may need to restart your shell or sign out / back in."
+                "Install reported success but soffice is still not on PATH "
+                "and isn't in the standard install locations. You may need "
+                "to restart your shell or sign out / back in."
             )
             return
+        self._stage1_advanced = True
         self._begin_stage2_or_finish()
 
     # -------------------------------- Stage 2 — download H2Orestart .oxt
