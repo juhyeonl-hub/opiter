@@ -52,29 +52,45 @@
 
 ## 설치
 
-### 필수 환경
-- **Python 3.11** 이상 (uv가 자동 관리)
-- [**uv**](https://github.com/astral-sh/uv) 패키지 매니저
-- Qt6 디스플레이 환경:
-  - **Linux**: X11 또는 Wayland 데스크톱 세션
-  - **WSL2**: WSLg (Windows 11) 또는 X 서버 포워딩
-  - **macOS / Windows**: uv로 빌드는 가능하나 v0.1 단계에서 직접 검증되지 않음
-- 선택 사항: PDF → HWP 변환을 쓰려면 `libreoffice` + `h2orestart` 확장
-
-### uv 설치 (없을 경우)
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
 ### 빠른 설치 (릴리스 다운로드)
 
 [최신 릴리스](https://github.com/juhyeonl-hub/opiter/releases/latest)에서 OS에 맞는 파일을 받으세요:
 
-- **Windows**: `opiter-windows-x86_64.exe` — 더블클릭으로 실행.
-- **macOS (Apple Silicon)**: `opiter-macos-arm64.dmg` — 마운트 후 `Opiter.app`을 Applications로 드래그. 서명되지 않은 앱이라 첫 실행 시 우클릭 → "열기"로 Gatekeeper 경고를 우회해야 합니다.
-- **Linux (Debian/Ubuntu)**: `opiter-linux-amd64.deb` — `sudo apt install ./opiter-linux-amd64.deb`.
+#### Windows
+파일: `opiter-windows-x86_64.exe`. 더블클릭으로 실행.
+
+> **첫 실행 시 보안 경고가 떠요.** "Windows에서 PC를 보호했습니다" 라는 파란 창이 뜨는데, 코드 서명 인증서를 아직 받지 못해서 그래요. 작은 글씨의 **"추가 정보"** 링크를 클릭한 뒤 **"실행"** 버튼을 누르면 정상 실행됩니다. ([SignPath Foundation](https://signpath.org/) 무료 OSS 서명을 신청 중이며, 통과되면 이 경고는 자동으로 사라집니다.)
+>
+> **창 자체가 안 뜨고 아무 일도 일어나지 않는 경우:** Smart App Control 기능이 켜져 있어서 무서명 앱을 조용히 차단한 거예요. 서명된 빌드가 나올 때까지 기다리거나, 아래 "소스에서 빌드" 방법으로 직접 빌드하면 됩니다.
+
+#### macOS (Apple Silicon)
+파일: `opiter-macos-arm64.dmg`. DMG를 열고 `Opiter.app`을 Applications 폴더로 드래그.
+
+> **첫 실행 시 보안 경고.** 앱을 우클릭 → **"열기"** → 다이얼로그에서 다시 **"열기"** 클릭. 한 번 통과시키면 그 다음부터는 일반 더블클릭으로 열립니다. (아직 Apple notarization을 받지 않아 첫 실행에만 필요한 단계입니다.)
+
+#### Linux (Debian / Ubuntu)
+파일: `opiter-linux-amd64.deb`.
+
+```bash
+sudo apt install ./opiter-linux-amd64.deb
+```
+
+설치 후 애플리케이션 메뉴에서 실행하거나 터미널에서 `opiter` 입력.
 
 ### 소스에서 빌드
+
+세 OS 모두에서 동작 — 미리 빌드된 바이너리가 막혀 있거나 코드를 직접 수정하려면 이 방법을 쓰세요.
+
+**필수 환경**:
+- **Python 3.11** 이상 (uv가 자동 설치)
+- [**uv**](https://github.com/astral-sh/uv) 패키지 매니저:
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+- Qt6 디스플레이 환경 (Linux X11/Wayland, WSL2 + WSLg, macOS, Windows 데스크톱)
+- 선택 사항: PDF → HWP 변환을 쓰려면 `libreoffice` + [`h2orestart`](https://github.com/ebandal/H2Orestart) 확장
+
+**빌드 & 실행**:
 ```bash
 git clone https://github.com/juhyeonl-hub/opiter
 cd opiter

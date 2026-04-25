@@ -52,29 +52,45 @@ See [FEATURES.md](./FEATURES.md) for the full feature inventory and post-v0.1 ro
 
 ## Installation
 
-### Prerequisites
-- **Python 3.11** or later (managed automatically by uv)
-- [**uv**](https://github.com/astral-sh/uv) package manager
-- A working Qt6 display environment:
-  - **Linux**: a desktop session (X11 or Wayland)
-  - **WSL2**: WSLg (Windows 11) or X server forwarding
-  - **macOS / Windows**: should work via uv but not yet tested in this release
-- Optional: `libreoffice` + `h2orestart` extension for PDF → HWP export
-
-### Install uv (if needed)
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
 ### Quick install (download a release)
 
 Pick the file that matches your OS from the [latest release](https://github.com/juhyeonl-hub/opiter/releases/latest):
 
-- **Windows**: `opiter-windows-x86_64.exe` — double-click to run.
-- **macOS (Apple Silicon)**: `opiter-macos-arm64.dmg` — open and drag `Opiter.app` to Applications. First launch: right-click → "Open" to bypass the unsigned-app Gatekeeper warning.
-- **Linux (Debian/Ubuntu)**: `opiter-linux-amd64.deb` — `sudo apt install ./opiter-linux-amd64.deb`.
+#### Windows
+File: `opiter-windows-x86_64.exe`. Double-click to run.
+
+> **First-launch security warning.** Windows shows a blue "Windows protected your PC" dialog because the binary isn't yet code-signed. Click the small **"More info"** link, then **"Run anyway"** — the app will launch normally. (Code signing through the [SignPath Foundation](https://signpath.org/) is in progress; once approved, this warning will go away on its own.)
+>
+> **If nothing happens at all (no dialog, app silently fails):** your machine likely has Smart App Control turned on, which silently blocks unsigned apps. Wait for the SignPath-signed build, or build from source — see below.
+
+#### macOS (Apple Silicon)
+File: `opiter-macos-arm64.dmg`. Open the DMG and drag `Opiter.app` to Applications.
+
+> **First-launch security warning.** Right-click the app → **"Open"** → confirm "Open" in the dialog. macOS will remember the choice for future launches. (The bundle isn't yet notarized; this step is only needed once.)
+
+#### Linux (Debian / Ubuntu)
+File: `opiter-linux-amd64.deb`.
+
+```bash
+sudo apt install ./opiter-linux-amd64.deb
+```
+
+Launch from the application menu or run `opiter` from any terminal.
 
 ### Build from source
+
+Works on all three platforms — useful if the prebuilt binary is blocked or if you want to develop against the code.
+
+**Prerequisites**:
+- **Python 3.11** or later (uv installs it automatically)
+- [**uv**](https://github.com/astral-sh/uv) package manager — install with:
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+- A working Qt6 display environment (Linux X11/Wayland, WSL2 + WSLg, macOS, Windows desktop)
+- Optional: `libreoffice` + the [`h2orestart`](https://github.com/ebandal/H2Orestart) extension for PDF → HWP export
+
+**Build & run**:
 ```bash
 git clone https://github.com/juhyeonl-hub/opiter
 cd opiter
