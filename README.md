@@ -126,3 +126,7 @@ Opiter stands on the shoulders of excellent open-source projects:
 - [uv](https://github.com/astral-sh/uv) — Python packaging
 
 For PDF → HWP export, optionally requires [LibreOffice](https://www.libreoffice.org/) and the [h2orestart](https://github.com/ebandal/H2Orestart) extension.
+
+## Code Signing
+
+Windows binaries are code-signed by the [SignPath Foundation](https://signpath.org/) under their free certificate program for open-source projects. The macOS `.app` bundle and Linux `.deb` are currently distributed unsigned.

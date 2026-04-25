@@ -126,3 +126,7 @@ Opiter는 다음 오픈소스 프로젝트들 위에서 만들어졌습니다:
 - [uv](https://github.com/astral-sh/uv) — Python 패키징
 
 PDF → HWP 변환 시 [LibreOffice](https://www.libreoffice.org/)와 [h2orestart](https://github.com/ebandal/H2Orestart) 확장을 사용합니다.
+
+## 코드 서명
+
+Windows 바이너리는 [SignPath Foundation](https://signpath.org/)이 오픈소스 프로젝트에 무료로 제공하는 인증서 프로그램으로 서명됩니다. macOS `.app` 번들과 Linux `.deb`는 현재 무서명으로 배포됩니다.
